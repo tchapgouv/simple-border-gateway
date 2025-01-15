@@ -1,0 +1,48 @@
+[package]
+name = "simple-border-gateway"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = { version = "0.8", features = ["tokio"] }
+axum-extra = { version = "0.10", features = ["typed-header"] }
+
+tokio = { version = "1", features = ["full"] }
+hyper = { version = "1", features = ["full"] }
+
+tower = { version = "0.5", features = ["full"] }
+tower-http = { version = "0.6", features = ["trace"] }
+
+reqwest = { version = "0.12", features = ["stream"] }
+
+hudsucker = { version = "0.23", default-features = false, features = [
+    "decoder",
+    "rcgen-ca",
+    "rustls-client",
+] }
+# "native-tls-client", "openssl-ca", "rcgen-ca", "rustls-client"
+rcgen = { version = "0.13", default-features = false, features = [
+    "pem",
+    "aws_lc_rs",
+] }
+http = "1"
+
+tracing = "0.1"
+# tracing-subscriber = "0.3"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+ruma = { version = "0.12", features = ["federation-api", "server-util"] }
+futures = "0.3"
+http-body-util = "0.1"
+
+lazy_static = "1"
+regex = "1"
+log = { version = "0.4" }
+env_logger = "0.11"
+
+toml = "0.8"
+
+[dev-dependencies]
+axum-test = "17"
