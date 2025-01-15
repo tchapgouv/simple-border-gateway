@@ -32,7 +32,7 @@ pub(crate) async fn forbidden_handler(
     uri: Uri,
     TypedHeader(XForwardedHost(x_forwarded_host)): TypedHeader<XForwardedHost>,
 ) -> http::Response<Body> {
-    warn!("{} {} {} : forbidden request", x_forwarded_host, method, uri);
+    warn!("{x_forwarded_host} {method} {uri} : forbidden request");
     create_forbidden_response("errcode", None)
 }
 
@@ -53,10 +53,7 @@ pub(crate) async fn forward_handler(
         .get(x_forwarded_host.as_str())
     {
         Some(dest_base_url) => {
-            info!(
-                "{} {} {} : forward request to {}",
-                x_forwarded_host, method, uri, dest_base_url
-            );
+            info!("{x_forwarded_host} {method} {uri} : forward request to {dest_base_url}");
             forward_incoming_request(
                 state,
                 dest_base_url,
@@ -68,10 +65,7 @@ pub(crate) async fn forward_handler(
             .await
         }
         None => {
-            warn!(
-                "{} {} {} : destination unknown, block request",
-                x_forwarded_host, method, uri
-            );
+            warn!("{x_forwarded_host} {method} {uri} : destination unknown, block request");
             create_empty_response(StatusCode::BAD_GATEWAY)
         }
     }
@@ -172,11 +166,11 @@ async fn verify_signature(
     };
 
     let canonical_signed_json: CanonicalJsonValue = serde_json::to_value(signed_req)
-        .unwrap()
+        .unwrap() // TODO
         .try_into()
-        .unwrap();
+        .unwrap(); // TODO
 
-    verify_json(&public_key_map, canonical_signed_json.as_object().unwrap())
+    verify_json(&public_key_map, canonical_signed_json.as_object().unwrap()) // TODO
 }
 
 pub(crate) async fn forward_incoming_request(
@@ -196,9 +190,9 @@ pub(crate) async fn forward_incoming_request(
         .await;
 
     match res {
-        Ok(resp) => return convert_response(resp).unwrap(),
+        Ok(resp) => return convert_response(resp).unwrap(), // TODO
         Err(e) => {
-            warn!("{method} {path_and_query} : error forwarding the req to the upstream server {e}");
+            warn!("{method} {path_and_query} : error forwarding the req to {dest} {e}");
             create_empty_response(StatusCode::BAD_GATEWAY)
         }
     }

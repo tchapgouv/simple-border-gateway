@@ -1,5 +1,5 @@
 mod inbound;
-mod outbound;
+// mod outbound;
 
 mod util;
 mod config;
@@ -33,7 +33,7 @@ async fn main() {
     for hs in config.external_homeservers {
         let mut verify_keys :BTreeMap<String, Base64> = BTreeMap::new();
         for (k,v) in hs.verify_keys.iter() {
-            verify_keys.insert(k.clone(), Base64::parse(v).expect("TODO"));
+            verify_keys.insert(k.clone(), Base64::parse(v).expect("Failed to parse verify key as base64"));
         }
         public_key_map.insert(hs.server_name, verify_keys);
     }
@@ -47,9 +47,12 @@ async fn main() {
         )
         .await;
     });
+
     // let outbound_proxy_task = tokio::spawn(async move {
     //     outbound::create_proxy("0.0.0.0:3128", shutdown_signal()).await;
     // });
-    let _ = inbound_proxy_task.await;
+
     // let _ = outbound_proxy_task.await;
+
+    let _ = inbound_proxy_task.await;
 }
