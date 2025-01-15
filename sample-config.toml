@@ -1,0 +1,8 @@
+[[internal_homeservers]]
+server_name = "tout.im"
+federation_domain = "matrix.tout.im"
+destination_base_url = "http://localhost:8008"
+
+[[external_homeservers]]
+server_name = "matrix.org"
+verify_keys = { "ed25519:a_RXGa" = "l8Hft5qXKn1vfHrg3p4+W8gELQVo8N13JkluMfmn2sQ" }
