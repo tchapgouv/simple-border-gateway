@@ -2,11 +2,12 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Clone)]
 pub(crate) struct InternalHomeserver {
     pub(crate) server_name: String,
     pub(crate) federation_domain: String,
-    pub(crate) destination_base_url:String,
+    pub(crate) destination_base_url: String,
+    pub(crate) allow_client_traffic: Option<bool>,
 }
 
 #[derive(Deserialize, Serialize)]

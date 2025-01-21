@@ -48,15 +48,16 @@ pub(crate) async fn forward_handler(
         .replace_all(x_forwarded_host.as_str(), "")
         .to_string();
     match state
-        .destination_base_urls
+        .destination_homeservers
         .clone()
         .get(x_forwarded_host.as_str())
     {
-        Some(dest_base_url) => {
-            info!("{x_forwarded_host} {method} {uri} : forward request to {dest_base_url}");
+        Some(destination_homeserver) => {
+            let destination_base_url = destination_homeserver.destination_base_url.clone();
+            info!("{x_forwarded_host} {method} {uri} : forward request to {destination_base_url}");
             forward_incoming_request(
                 state,
-                dest_base_url,
+                destination_base_url.as_str(),
                 method,
                 uri.path_and_query().map_or("", |p| p.as_str()),
                 headers,
@@ -85,19 +86,19 @@ pub(crate) async fn verify_signature_handler(
         .to_string();
 
     let dest_base_url = match state
-        .destination_base_urls
+        .destination_homeservers
         .clone()
         .get(x_forwarded_host.as_str())
     {
-        Some(dest_base_url) => dest_base_url.clone(),
+        Some(destination_homeserver) => destination_homeserver.destination_base_url.clone(),
         None => {
             warn!("{x_forwarded_host} {method} {uri} : destination unknown, block request");
             return create_empty_response(StatusCode::BAD_GATEWAY);
         }
     };
 
-    let origin = x_matrix.origin.as_str();
-    if !state.public_key_map.contains_key(origin) {
+    let origin = x_matrix.origin.clone();
+    if !state.public_key_map.contains_key(origin.as_str()) {
         warn!("{x_forwarded_host} {method} {uri} : unauthorized server {origin}, forbid request");
         return create_empty_response(StatusCode::FORBIDDEN);
     }
@@ -112,7 +113,7 @@ pub(crate) async fn verify_signature_handler(
     .await
     {
         Ok(_) => {
-            info!("{x_forwarded_host} {method} {uri} : signature ok, forward request to {dest_base_url}");
+            info!("{x_forwarded_host} {method} {uri} : authorized server {origin} signature ok, forward request to {dest_base_url}");
             forward_incoming_request(
                 state,
                 dest_base_url.as_str(),
@@ -124,7 +125,7 @@ pub(crate) async fn verify_signature_handler(
             .await
         }
         Err(e) => {
-            warn!("{x_forwarded_host} {method} {uri} : signature not ok, forbid request, {e}");
+            warn!("{x_forwarded_host} {method} {uri} : authorized server {origin} but wrong signature, forbid request, {e}");
             return create_empty_response(StatusCode::FORBIDDEN);
         }
     }

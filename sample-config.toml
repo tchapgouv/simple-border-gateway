@@ -2,6 +2,7 @@
 server_name = "tout.im"
 federation_domain = "matrix.tout.im"
 destination_base_url = "http://localhost:8008"
+allow_client_traffic = true
 
 [[external_homeservers]]
 server_name = "matrix.org"

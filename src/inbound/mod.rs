@@ -3,27 +3,29 @@ use std::{collections::BTreeMap, future::Future};
 use router::create_router;
 use ruma::serde::Base64;
 
+use crate::config::InternalHomeserver;
+
 mod handlers;
 mod router;
 
 #[derive(Clone)]
 pub(crate) struct GatewayState {
     http_client: reqwest::Client,
-    destination_base_urls: BTreeMap<String, String>,
+    destination_homeservers: BTreeMap<String, InternalHomeserver>,
     public_key_map: BTreeMap<String, BTreeMap<String, Base64>>,
 }
 
 pub(crate) async fn create_proxy<F>(
     listening_addr: &str,
     shutdown_signal: F,
-    destination_base_urls: BTreeMap<String, String>,
+    destination_homeservers: BTreeMap<String, InternalHomeserver>,
     public_key_map: BTreeMap<String, BTreeMap<String, Base64>>,
 ) where
     F: Future<Output = ()> + Send + 'static,
 {
     let state = GatewayState {
         http_client: reqwest::Client::new(),
-        destination_base_urls: destination_base_urls,
+        destination_homeservers: destination_homeservers,
         public_key_map: public_key_map,
     };
 
