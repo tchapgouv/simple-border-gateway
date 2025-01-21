@@ -2,21 +2,21 @@ use std::convert::Infallible;
 
 use axum::{
     handler::Handler,
-    routing::{self, MethodRouter},
+    routing::{self, any, MethodRouter},
     Router,
 };
 use http::Method;
 use tower_http::trace;
 use tracing::Level;
 
-use crate::matrix_spec::{AuthType, FEDERATION_ENDPOINTS};
+use crate::matrix_spec::{AuthType, CLIENT_GLOBAL_ENDPOINT, FEDERATION_ENDPOINTS};
 
 use super::{
     handlers::{forbidden_handler, forward_handler, verify_signature_handler},
     GatewayState,
 };
 
-pub(crate) fn create_router(state: GatewayState) -> Router {
+pub(crate) fn create_router(state: GatewayState, allow_all_client_traffic: bool) -> Router {
     let mut r = Router::new().layer(
         trace::TraceLayer::new_for_http()
             .make_span_with(trace::DefaultMakeSpan::new().level(Level::INFO))
@@ -41,6 +41,10 @@ pub(crate) fn create_router(state: GatewayState) -> Router {
     }
 
     // r = crate::membership::add_routes(r);
+
+    if allow_all_client_traffic {
+        r = r.route(CLIENT_GLOBAL_ENDPOINT, any(forward_handler));
+    }
 
     r = r.fallback(forbidden_handler);
 

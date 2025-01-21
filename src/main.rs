@@ -9,7 +9,7 @@ mod matrix_spec;
 
 use std::{collections::BTreeMap, fs};
 
-use config::{BorderGatewayConfig, InternalHomeserver};
+use config::BorderGatewayConfig;
 use ruma::{serde::Base64, signatures::PublicKeyMap};
 
 async fn shutdown_signal() {
@@ -25,9 +25,9 @@ async fn main() {
     let config_toml_str = fs::read_to_string("config.toml").expect("Failed to read config file");
     let config: BorderGatewayConfig = toml::from_str(&config_toml_str).expect("Failed to deserialize config file");
 
-    let mut destination_homeservers: BTreeMap<String, InternalHomeserver> = BTreeMap::new();
+    let mut destination_base_urls: BTreeMap<String, String> = BTreeMap::new();
     for hs in config.internal_homeservers {
-        destination_homeservers.insert(hs.federation_domain.clone(), hs);
+        destination_base_urls.insert(hs.federation_domain, hs.destination_base_url);
     }
 
     let mut public_key_map: PublicKeyMap = BTreeMap::new();
@@ -43,8 +43,9 @@ async fn main() {
         inbound::create_proxy(
             "0.0.0.0:9999",
             shutdown_signal(),
-            destination_homeservers,
+            destination_base_urls,
             public_key_map,
+            config.allow_all_client_traffic.unwrap_or(false),
         )
         .await;
     });

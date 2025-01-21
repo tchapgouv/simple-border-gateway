@@ -48,16 +48,15 @@ pub(crate) async fn forward_handler(
         .replace_all(x_forwarded_host.as_str(), "")
         .to_string();
     match state
-        .destination_homeservers
+        .destination_base_urls
         .clone()
         .get(x_forwarded_host.as_str())
     {
-        Some(destination_homeserver) => {
-            let destination_base_url = destination_homeserver.destination_base_url.clone();
-            info!("{x_forwarded_host} {method} {uri} : forward request to {destination_base_url}");
+        Some(dest_base_url) => {
+            info!("{x_forwarded_host} {method} {uri} : forward request to {dest_base_url}");
             forward_incoming_request(
                 state,
-                destination_base_url.as_str(),
+                dest_base_url,
                 method,
                 uri.path_and_query().map_or("", |p| p.as_str()),
                 headers,
@@ -86,11 +85,11 @@ pub(crate) async fn verify_signature_handler(
         .to_string();
 
     let dest_base_url = match state
-        .destination_homeservers
+        .destination_base_urls
         .clone()
         .get(x_forwarded_host.as_str())
     {
-        Some(destination_homeserver) => destination_homeserver.destination_base_url.clone(),
+        Some(dest_base_url) => dest_base_url.clone(),
         None => {
             warn!("{x_forwarded_host} {method} {uri} : destination unknown, block request");
             return create_empty_response(StatusCode::BAD_GATEWAY);

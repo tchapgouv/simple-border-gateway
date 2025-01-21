@@ -230,3 +230,5 @@ pub(crate) const FEDERATION_ENDPOINTS: [FederationEndpoint; 38] = [
         auth_type: AuthType::Unauthenticated,
     },
 ];
+
+pub(crate) const CLIENT_GLOBAL_ENDPOINT: &str = "/_matrix/client/{*path}";
