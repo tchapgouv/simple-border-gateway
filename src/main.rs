@@ -1,5 +1,5 @@
 mod inbound;
-// mod outbound;
+mod outbound;
 
 mod util;
 mod config;
@@ -45,16 +45,16 @@ async fn main() {
             shutdown_signal(),
             destination_base_urls,
             public_key_map,
-            config.allow_all_client_traffic.unwrap_or(false),
+            config.allow_all_client_traffic,
         )
         .await;
     });
 
-    // let outbound_proxy_task = tokio::spawn(async move {
-    //     outbound::create_proxy("0.0.0.0:3128", shutdown_signal()).await;
-    // });
+    let outbound_proxy_task = tokio::spawn(async move {
+        outbound::create_proxy("0.0.0.0:3128", "ca.key", "ca.crt", shutdown_signal()).await;
+    });
 
-    // let _ = outbound_proxy_task.await;
+    let _ = outbound_proxy_task.await;
 
     let _ = inbound_proxy_task.await;
 }

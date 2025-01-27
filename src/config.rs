@@ -19,5 +19,8 @@ pub(crate) struct ExternalHomeserver {
 pub(crate) struct BorderGatewayConfig {
     pub(crate) internal_homeservers: Vec<InternalHomeserver>,
     pub(crate) external_homeservers: Vec<ExternalHomeserver>,
-    pub(crate) allow_all_client_traffic: Option<bool>,
+    #[serde(default)]
+    pub(crate) allow_all_client_traffic: bool,
+    pub(crate) proxy_ca_key: String,
+    pub(crate) proxy_ca_cert: String,
 }

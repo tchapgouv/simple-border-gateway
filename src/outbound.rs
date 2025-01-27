@@ -1,4 +1,4 @@
-use std::future::Future;
+use std::{fs, future::Future};
 
 use http::Method;
 // use hudsucker::{
@@ -40,15 +40,15 @@ impl HttpHandler for LogHandler {
     }
 }
 
-pub(crate) async fn create_proxy<F>(listening_addr: &str, shutdown_signal: F)
+pub(crate) async fn create_proxy<F>(listening_addr: &str, ca_private_key_path: &str, ca_cert_path: &str, shutdown_signal: F)
 where
     F: Future<Output = ()> + Send + 'static,
 {
-    let private_key = include_str!("rootCA.key");
-    let ca_cert = include_str!("rootCA.crt");
+    let private_key = fs::read_to_string(ca_private_key_path).expect("Failed to read CA private key file");
+    let ca_cert = fs::read_to_string(ca_cert_path).expect("Failed to read CA certificate file");
 
-    let key_pair = KeyPair::from_pem(private_key).expect("Failed to parse private key");
-    let ca_cert = CertificateParams::from_ca_cert_pem(ca_cert)
+    let key_pair = KeyPair::from_pem(private_key.as_str()).expect("Failed to parse CA private key");
+    let ca_cert = CertificateParams::from_ca_cert_pem(ca_cert.as_str())
         .expect("Failed to parse CA certificate")
         .self_signed(&key_pair)
         .expect("Failed to sign CA certificate");
