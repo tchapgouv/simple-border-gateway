@@ -2,7 +2,7 @@ use std::{fs, future::Future};
 
 use http::Method;
 // use hudsucker::{
-//     certificate_authority::{OpensslAuthority}, openssl::{hash::MessageDigest, pkey::PKey, x509::X509}, Body, HttpContext, HttpHandler, Proxy, RequestOrResponse
+//     certificate_authority::OpensslAuthority, openssl::{hash::MessageDigest, pkey::PKey, x509::X509}, rustls::crypto::aws_lc_rs, Body, HttpContext, HttpHandler, Proxy, RequestOrResponse
 // };
 use hudsucker::{
     certificate_authority::RcgenAuthority, rustls::crypto::aws_lc_rs, Body, HttpContext,
@@ -40,14 +40,20 @@ impl HttpHandler for LogHandler {
     }
 }
 
-pub(crate) async fn create_proxy<F>(listening_addr: &str, ca_private_key_path: &str, ca_cert_path: &str, shutdown_signal: F)
-where
+pub(crate) async fn create_proxy<F>(
+    listening_addr: &str,
+    ca_priv_key_path: &str,
+    ca_cert_path: &str,
+    shutdown_signal: F,
+) where
     F: Future<Output = ()> + Send + 'static,
 {
-    let private_key = fs::read_to_string(ca_private_key_path).expect("Failed to read CA private key file");
+    let ca_private_key =
+    fs::read_to_string(ca_priv_key_path).expect("Failed to read CA private key file");
     let ca_cert = fs::read_to_string(ca_cert_path).expect("Failed to read CA certificate file");
 
-    let key_pair = KeyPair::from_pem(private_key.as_str()).expect("Failed to parse CA private key");
+    let key_pair =
+        KeyPair::from_pem(ca_private_key.as_str()).expect("Failed to parse CA private key");
     let ca_cert = CertificateParams::from_ca_cert_pem(ca_cert.as_str())
         .expect("Failed to parse CA certificate")
         .self_signed(&key_pair)
@@ -55,9 +61,13 @@ where
 
     let ca = RcgenAuthority::new(key_pair, ca_cert, 1_000, aws_lc_rs::default_provider());
 
+    // let ca_private_key =
+    // fs::read(ca_priv_key_path).expect("Failed to read CA private key file");
+    // let ca_cert = fs::read(ca_cert_path).expect("Failed to read CA certificate file");
+
     // let private_key =
-    //     PKey::private_key_from_pem(private_key).expect("Failed to parse private key");
-    // let ca_cert = X509::from_pem(ca_cert).expect("Failed to parse CA certificate");
+    //     PKey::private_key_from_pem(ca_private_key.as_slice()).expect("Failed to parse private key");
+    // let ca_cert = X509::from_pem(ca_cert.as_slice()).expect("Failed to parse CA certificate");
 
     // let ca = OpensslAuthority::new(
     //     private_key,

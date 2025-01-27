@@ -33,10 +33,10 @@ pub(crate) fn create_router(state: GatewayState, allow_all_client_traffic: bool)
                 &endpoint.path,
                 get_method_router(endpoint.method, verify_signature_handler),
             ),
-            AuthType::Forbidden => r.route(
-                &endpoint.path,
-                get_method_router(endpoint.method, forbidden_handler),
-            ),
+            // AuthType::Forbidden => r.route(
+            //     &endpoint.path,
+            //     get_method_router(endpoint.method, forbidden_handler),
+            // ),
         };
     }
 

@@ -13,18 +13,27 @@ hyper = { version = "1", features = ["full"] }
 tower = { version = "0.5", features = ["full"] }
 tower-http = { version = "0.6", features = ["trace"] }
 
-reqwest = { version = "0.12", features = ["stream"] }
+
+# reqwest = { version = "0.12", default-features = false, features = ["stream"] }
+
+# hudsucker = { version = "0.23", default-features = false, features = [
+#     "decoder",
+#     "native-tls-client",
+#     "openssl-ca",
+# ] }
+
+reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls-native-roots-no-provider"] }
 
 hudsucker = { version = "0.23", default-features = false, features = [
     "decoder",
     "rcgen-ca",
     "rustls-client",
 ] }
-# "native-tls-client", "openssl-ca", "rcgen-ca", "rustls-client"
 rcgen = { version = "0.13", default-features = false, features = [
     "pem",
     "aws_lc_rs",
 ] }
+
 http = "1"
 
 tracing = "0.1"

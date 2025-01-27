@@ -32,8 +32,11 @@ pub(crate) async fn create_proxy<F>(
         tokio::net::TcpListener::bind::<std::net::SocketAddr>(listening_addr.parse().unwrap())
             .await
             .unwrap();
-    axum::serve(listener, create_router(state, allow_all_client_traffic).into_make_service())
-        .with_graceful_shutdown(shutdown_signal)
-        .await
-        .unwrap();
+    axum::serve(
+        listener,
+        create_router(state, allow_all_client_traffic).into_make_service(),
+    )
+    .with_graceful_shutdown(shutdown_signal)
+    .await
+    .unwrap();
 }

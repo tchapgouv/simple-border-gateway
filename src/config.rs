@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 pub(crate) struct InternalHomeserver {
     pub(crate) server_name: String,
     pub(crate) federation_domain: String,
-    pub(crate) destination_base_url:String,
+    pub(crate) destination_base_url: String,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -21,6 +21,11 @@ pub(crate) struct BorderGatewayConfig {
     pub(crate) external_homeservers: Vec<ExternalHomeserver>,
     #[serde(default)]
     pub(crate) allow_all_client_traffic: bool,
-    pub(crate) proxy_ca_key: String,
-    pub(crate) proxy_ca_cert: String,
+    pub(crate) outbound_proxy: OutboundProxyConfig,
+}
+
+#[derive(Deserialize, Serialize)]
+pub(crate) struct OutboundProxyConfig {
+    pub(crate) ca_priv_key_path: String,
+    pub(crate) ca_cert_path: String,
 }

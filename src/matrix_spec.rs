@@ -3,7 +3,7 @@ use http::Method;
 pub(crate) enum AuthType {
     Unauthenticated,
     CheckSignature,
-    Forbidden,
+    // Forbidden,
 }
 
 pub(crate) struct FederationEndpoint {
