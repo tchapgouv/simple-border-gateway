@@ -17,22 +17,20 @@ use regex::Regex;
 use hudsucker::{
     certificate_authority::OpensslAuthority,
     openssl::{hash::MessageDigest, pkey::PKey, x509::X509},
-    rustls::crypto::aws_lc_rs,
-    Body, HttpContext, HttpHandler, Proxy, RequestOrResponse,
 };
 #[cfg(feature = "rustls")]
 use hudsucker::{
-    certificate_authority::RcgenAuthority, rustls::crypto::aws_lc_rs, Body, HttpContext,
-    HttpHandler, Proxy, RequestOrResponse,
+    certificate_authority::RcgenAuthority,
+    rcgen::{CertificateParams, KeyPair},
 };
-#[cfg(feature = "rustls")]
-use rcgen::{CertificateParams, KeyPair};
+use hudsucker::{
+    rustls::crypto::aws_lc_rs, Body, HttpContext, HttpHandler, Proxy, RequestOrResponse,
+};
 
 use crate::{
     matrix_spec::{FederationEndpoint, FEDERATION_ENDPOINTS},
     util::create_forbidden_response,
 };
-
 
 #[derive(Clone)]
 struct FederationRegexEndpoint {
@@ -114,7 +112,6 @@ impl HttpHandler for LogHandler {
         _ctx: &HttpContext,
         res: http::Response<Body>,
     ) -> http::Response<Body> {
-        // println!("res {:?}", res);
         res
     }
 }
