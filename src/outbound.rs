@@ -94,6 +94,8 @@ impl HttpHandler for LogHandler {
             {
                 return req.into();
             }
+            // It's supposed to be a Matrix federation req, let's check it's an allowed domain
+            // and that it is a valid req regarding the spec endpoints
             if self
                 .allowed_federation_domains
                 .contains(req.uri().host().unwrap_or(""))
