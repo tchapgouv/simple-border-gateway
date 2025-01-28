@@ -44,31 +44,15 @@ pub(crate) async fn forward_handler(
     headers: HeaderMap,
     request: Request<Body>,
 ) -> http::Response<Body> {
-    let x_forwarded_host = REMOVE_DEFAULT_PORTS_REGEX
-        .replace_all(x_forwarded_host.as_str(), "")
-        .to_string();
-    match state
-        .destination_base_urls
-        .clone()
-        .get(x_forwarded_host.as_str())
-    {
-        Some(dest_base_url) => {
-            info!("{x_forwarded_host} {method} {uri} : forward request to {dest_base_url}");
-            forward_incoming_request(
-                state,
-                dest_base_url,
-                method,
-                uri.path_and_query().map_or("", |p| p.as_str()),
-                headers,
-                request.into_body(),
-            )
-            .await
-        }
-        None => {
-            warn!("{x_forwarded_host} {method} {uri} : destination unknown, block request");
-            create_empty_response(StatusCode::BAD_GATEWAY)
-        }
-    }
+    forward_incoming_request(
+        state,
+        method,
+        uri.path_and_query().map_or("", |p| p.as_str()),
+        x_forwarded_host,
+        headers,
+        request.into_body(),
+    )
+    .await
 }
 
 pub(crate) async fn verify_signature_handler(
@@ -80,22 +64,6 @@ pub(crate) async fn verify_signature_handler(
     headers: HeaderMap,
     body: String,
 ) -> http::Response<Body> {
-    let x_forwarded_host = REMOVE_DEFAULT_PORTS_REGEX
-        .replace_all(x_forwarded_host.as_str(), "")
-        .to_string();
-
-    let dest_base_url = match state
-        .destination_base_urls
-        .clone()
-        .get(x_forwarded_host.as_str())
-    {
-        Some(dest_base_url) => dest_base_url.clone(),
-        None => {
-            warn!("{x_forwarded_host} {method} {uri} : destination unknown, block request");
-            return create_empty_response(StatusCode::BAD_GATEWAY);
-        }
-    };
-
     let origin = x_matrix.origin.clone();
     if !state.public_key_map.contains_key(origin.as_str()) {
         warn!("{x_forwarded_host} {method} {uri} : unauthorized server {origin}, forbid request");
@@ -112,12 +80,12 @@ pub(crate) async fn verify_signature_handler(
     .await
     {
         Ok(_) => {
-            info!("{x_forwarded_host} {method} {uri} : authorized server {origin} signature ok, forward request to {dest_base_url}");
+            info!("{x_forwarded_host} {method} {uri} : authorized server {origin} signature ok");
             forward_incoming_request(
                 state,
-                dest_base_url.as_str(),
                 method,
                 uri.path_and_query().map_or("", |p| p.as_str()),
+                x_forwarded_host,
                 headers,
                 Body::from(body),
             )
@@ -175,15 +143,34 @@ async fn verify_signature(
 
 pub(crate) async fn forward_incoming_request(
     state: GatewayState,
-    dest: &str,
     method: Method,
     path_and_query: &str,
+    x_forwarded_host: String,
     headers: HeaderMap,
     body: Body,
 ) -> http::Response<Body> {
+    let x_forwarded_host = REMOVE_DEFAULT_PORTS_REGEX
+        .replace_all(x_forwarded_host.as_str(), "")
+        .to_string();
+
+    let dest_base_url = match state
+        .destination_base_urls
+        .clone()
+        .get(x_forwarded_host.as_str())
+    {
+        Some(dest_base_url) => dest_base_url.clone(),
+        None => {
+            warn!(
+                "{x_forwarded_host} {method} {path_and_query} : destination unknown, block request"
+            );
+            return create_empty_response(StatusCode::BAD_GATEWAY);
+        }
+    };
+
+    info!("{x_forwarded_host} {method} {path_and_query} : forward request to {dest_base_url}");
     let res = state
         .http_client
-        .request(method.clone(), format!("{dest}{path_and_query}"))
+        .request(method.clone(), format!("{dest_base_url}{path_and_query}"))
         .headers(headers)
         .body(reqwest::Body::wrap_stream(body.into_data_stream()))
         .send()
@@ -192,7 +179,7 @@ pub(crate) async fn forward_incoming_request(
     match res {
         Ok(resp) => return convert_response(resp).unwrap(), // TODO
         Err(e) => {
-            warn!("{method} {path_and_query} : error forwarding the req to {dest} {e}");
+            warn!("{method} {path_and_query} : error forwarding the req to {dest_base_url} {e}");
             create_empty_response(StatusCode::BAD_GATEWAY)
         }
     }

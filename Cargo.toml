@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-axum = { version = "0.8", features = ["tokio"] }
+axum = { version = "0.8", features = ["http2", "tokio"] }
 axum-extra = { version = "0.10", features = ["typed-header"] }
 
 tokio = { version = "1", features = ["full"] }
@@ -13,26 +13,15 @@ hyper = { version = "1", features = ["full"] }
 tower = { version = "0.5", features = ["full"] }
 tower-http = { version = "0.6", features = ["trace"] }
 
-
-# reqwest = { version = "0.12", default-features = false, features = ["stream"] }
-
-# hudsucker = { version = "0.23", default-features = false, features = [
-#     "decoder",
-#     "native-tls-client",
-#     "openssl-ca",
-# ] }
-
-reqwest = { version = "0.12", default-features = false, features = ["stream", "rustls-tls-native-roots-no-provider"] }
+reqwest = { version = "0.12", default-features = false, features = ["http2", "stream"] }
 
 hudsucker = { version = "0.23", default-features = false, features = [
-    "decoder",
-    "rcgen-ca",
-    "rustls-client",
+    "decoder", "http2"
 ] }
 rcgen = { version = "0.13", default-features = false, features = [
     "pem",
     "aws_lc_rs",
-] }
+], optional = true }
 
 http = "1"
 
@@ -55,3 +44,8 @@ toml = "0.8"
 
 [dev-dependencies]
 axum-test = "17"
+
+[features]
+default = ["native-tls"]
+native-tls = ["hudsucker/native-tls-client", "hudsucker/openssl-ca"]
+rustls = ["dep:rcgen", "hudsucker/rustls-client", "hudsucker/rcgen-ca", "reqwest/rustls-tls-native-roots-no-provider"]

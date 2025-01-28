@@ -12,6 +12,7 @@ pub(crate) struct InternalHomeserver {
 #[derive(Deserialize, Serialize)]
 pub(crate) struct ExternalHomeserver {
     pub(crate) server_name: String,
+    pub(crate) federation_domain: String,
     pub(crate) verify_keys: BTreeMap<String, String>,
 }
 
@@ -28,4 +29,6 @@ pub(crate) struct BorderGatewayConfig {
 pub(crate) struct OutboundProxyConfig {
     pub(crate) ca_priv_key_path: String,
     pub(crate) ca_cert_path: String,
+    #[serde(default)]
+    pub(crate) allowed_external_domains_dangerous: Vec<String>,
 }

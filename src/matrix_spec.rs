@@ -1,11 +1,13 @@
 use http::Method;
 
+#[derive(Clone)]
 pub(crate) enum AuthType {
     Unauthenticated,
     CheckSignature,
     // Forbidden,
 }
 
+#[derive(Clone)]
 pub(crate) struct FederationEndpoint {
     pub(crate) path: &'static str,
     pub(crate) method: Option<Method>,

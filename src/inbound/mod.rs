@@ -23,7 +23,7 @@ pub(crate) async fn create_proxy<F>(
     F: Future<Output = ()> + Send + 'static,
 {
     let state = GatewayState {
-        http_client: reqwest::Client::new(),
+        http_client: create_http_client(),
         destination_base_urls: destination_base_urls,
         public_key_map: public_key_map,
     };
@@ -39,4 +39,14 @@ pub(crate) async fn create_proxy<F>(
     .with_graceful_shutdown(shutdown_signal)
     .await
     .unwrap();
+}
+
+#[cfg(feature = "rustls")]
+fn create_http_client() -> reqwest::Client {
+    reqwest::Client::builder().use_rustls_tls().build().unwrap()
+}
+
+#[cfg(feature = "native-tls")]
+fn create_http_client() -> reqwest::Client {
+    reqwest::Client::builder().build().unwrap()
 }

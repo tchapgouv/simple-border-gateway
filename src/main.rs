@@ -33,8 +33,12 @@ async fn main() {
         destination_base_urls.insert(hs.federation_domain, hs.destination_base_url);
     }
 
+    let mut allowed_federation_domains: Vec<String> = Vec::new();
     let mut public_key_map: PublicKeyMap = BTreeMap::new();
+
     for hs in config.external_homeservers {
+        allowed_federation_domains.push(hs.federation_domain);
+
         let mut verify_keys: BTreeMap<String, Base64> = BTreeMap::new();
         for (k, v) in hs.verify_keys.iter() {
             verify_keys.insert(
@@ -57,7 +61,15 @@ async fn main() {
     });
 
     let outbound_proxy_task = tokio::spawn(async move {
-        outbound::create_proxy("0.0.0.0:3128", &config.outbound_proxy.ca_priv_key_path, &config.outbound_proxy.ca_cert_path, shutdown_signal()).await;
+        outbound::create_proxy(
+            "0.0.0.0:3128",
+            &config.outbound_proxy.ca_priv_key_path,
+            &config.outbound_proxy.ca_cert_path,
+            allowed_federation_domains,
+            config.outbound_proxy.allowed_external_domains_dangerous,
+            shutdown_signal(),
+        )
+        .await;
     });
 
     let _ = outbound_proxy_task.await;
