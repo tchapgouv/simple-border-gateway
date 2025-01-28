@@ -5,8 +5,6 @@ mod config;
 mod matrix_spec;
 mod util;
 
-// mod membership;
-
 use std::{collections::BTreeMap, fs};
 
 use config::BorderGatewayConfig;

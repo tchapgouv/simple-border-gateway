@@ -33,7 +33,6 @@ use crate::{
     util::create_forbidden_response,
 };
 
-// use crate::membership;
 
 #[derive(Clone)]
 struct FederationRegexEndpoint {

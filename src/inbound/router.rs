@@ -40,8 +40,6 @@ pub(crate) fn create_router(state: GatewayState, allow_all_client_traffic: bool)
         };
     }
 
-    // r = crate::membership::add_routes(r);
-
     if allow_all_client_traffic {
         r = r.route(CLIENT_GLOBAL_ENDPOINT, any(forward_handler));
     }

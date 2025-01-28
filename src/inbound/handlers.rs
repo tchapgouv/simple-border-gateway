@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 
-// use crate::membership;
 use crate::util::{create_empty_response, create_forbidden_response, XForwardedHost};
 use axum::{
     body::Body,
