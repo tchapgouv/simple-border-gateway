@@ -46,6 +46,6 @@ toml = "0.8"
 axum-test = "17"
 
 [features]
-default = ["native-tls"]
+default = ["rustls"]
 native-tls = ["hudsucker/native-tls-client", "hudsucker/openssl-ca"]
 rustls = ["dep:rcgen", "hudsucker/rustls-client", "hudsucker/rcgen-ca", "reqwest/rustls-tls-native-roots-no-provider"]
