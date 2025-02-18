@@ -1,0 +1,21 @@
+allow_all_client_traffic = true
+
+[outbound_proxy]
+ca_priv_key_path = "ca.pem"
+ca_cert_path = "ca.crt"
+
+allowed_external_domains_dangerous = [
+    "ntfy.sh"
+]
+
+[[internal_homeservers]]
+server_name = "tout.im"
+federation_domain = "matrix.tout.im"
+destination_base_url = "http://localhost:8008"
+
+[[external_homeservers]]
+server_name = "matrix.org"
+# TODO shouldn't be needed, we should read `/.well-known/matrix/*` instead
+federation_domain = "matrix-federation.matrix.org:443"
+client_domain = "matrix-client.matrix.org:443"
+verify_keys = { "ed25519:a_RXGa" = "l8Hft5qXKn1vfHrg3p4+W8gELQVo8N13JkluMfmn2sQ" }
