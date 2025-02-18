@@ -1,0 +1,50 @@
+[package]
+name = "simple-border-gateway"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = { version = "0.8", features = ["http2", "tokio"] }
+axum-extra = { version = "0.10", features = ["typed-header"] }
+
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+hyper = { version = "1" }
+
+tower = { version = "0.5" }
+tower-http = { version = "0.6", features = ["trace"] }
+
+reqwest = { version = "0.12", default-features = false, features = ["http2", "stream"] }
+
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12"], optional = true }
+
+hudsucker = { version = "0.23", default-features = false, features = ["http2"] }
+
+rcgen = { version = "0.13", default-features = false, optional = true }
+
+http = "1"
+
+tracing = "0.1"
+log = "0.4"
+env_logger = "0.11"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+ruma = { version = "0.12", default-features = false, features = ["server-util", "signatures"] }
+futures = "0.3"
+http-body-util = "0.1"
+
+lazy_static = "1"
+regex = "1"
+
+toml = "0.8"
+
+[dev-dependencies]
+axum-test = "17"
+
+[features]
+default = ["rustls", "aws_lc_rs"]
+native-tls = ["hudsucker/native-tls-client", "hudsucker/openssl-ca"]
+rustls = ["dep:rustls", "dep:rcgen", "hudsucker/rustls-client", "hudsucker/rcgen-ca", "reqwest/rustls-tls-native-roots-no-provider"]
+ring = ["rustls/ring"]
+aws_lc_rs = ["rustls/aws_lc_rs"]
