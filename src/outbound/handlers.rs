@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use http::{Method, StatusCode};
+use http_body_util::BodyExt;
 use hyper::body::Body as _;
 use lazy_static::lazy_static;
 use log::{info, warn};
@@ -123,7 +124,6 @@ impl LogHandler {
 
         // Convert hudsucker Body to reqwest streaming body
         if !body.is_end_stream() {
-            use http_body_util::BodyExt;
             let stream = futures::StreamExt::map(body.into_data_stream(), |result| {
                 result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
             });
@@ -140,25 +140,24 @@ impl LogHandler {
     ) -> Result<http::Response<Body>, Box<dyn std::error::Error>> {
         // Build the response
         let status = response.status();
-        let mut builder = http::Response::builder().status(status);
+        let mut response_builder = http::Response::builder().status(status);
 
         // Copy headers
-        let headers = builder.headers_mut().unwrap();
+        let headers = response_builder.headers_mut().unwrap();
         for (name, value) in response.headers() {
             headers.insert(name, value.clone());
         }
 
         // Handle the response body
-        let body_stream = response.bytes_stream();
-        let mapped_stream = futures::StreamExt::map(body_stream, |result| match result {
-            Ok(bytes) => Ok(bytes),
-            Err(e) => Err(std::io::Error::new(std::io::ErrorKind::Other, e)),
-        });
+        let body = if response.content_length().is_none_or(|length| length > 0) {
+            Body::from_stream(futures::StreamExt::map(response.bytes_stream(), |result| {
+                result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+            }))
+        } else {
+            Body::empty()
+        };
 
-        // Create a Body from the stream
-        let body = Body::from_stream(mapped_stream);
-
-        Ok(builder
+        Ok(response_builder
             .body(body)
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?)
     }

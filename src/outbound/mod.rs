@@ -16,12 +16,6 @@ use hudsucker::rustls::crypto::aws_lc_rs as crypto_provider;
 use hudsucker::rustls::crypto::ring as crypto_provider;
 
 use hudsucker::Proxy;
-#[cfg(feature = "native-tls")]
-use hudsucker::{
-    certificate_authority::OpensslAuthority,
-    openssl::{hash::MessageDigest, pkey::PKey, x509::X509},
-};
-#[cfg(feature = "rustls")]
 use hudsucker::{
     certificate_authority::RcgenAuthority,
     rcgen::{CertificateParams, KeyPair},
@@ -65,37 +59,6 @@ pub(crate) async fn create_proxy<F>(
     }
 }
 
-#[cfg(feature = "native-tls")]
-pub(crate) fn get_proxy_builder(
-    listening_addr: &str,
-    ca_priv_key_path: &str,
-    ca_cert_path: &str,
-) -> ProxyBuilder<
-    WantsHandlers<OpensslAuthority, impl Connect + Clone, NoopHandler, NoopHandler, Pending<()>>,
-> {
-    let ca_private_key_bytes =
-        fs::read(ca_priv_key_path).expect("Failed to read CA private key file");
-    let ca_cert_bytes = fs::read(ca_cert_path).expect("Failed to read CA certificate file");
-
-    let private_key = PKey::private_key_from_pem(ca_private_key_bytes.as_slice())
-        .expect("Failed to parse private key");
-    let ca_cert = X509::from_pem(ca_cert_bytes.as_slice()).expect("Failed to parse CA certificate");
-
-    let ca = OpensslAuthority::new(
-        private_key,
-        ca_cert,
-        MessageDigest::sha256(),
-        1_000,
-        crypto_provider::default_provider(),
-    );
-
-    Proxy::builder()
-        .with_addr(listening_addr.parse().unwrap())
-        .with_ca(ca)
-        .with_native_tls_client()
-}
-
-#[cfg(feature = "rustls")]
 pub(crate) fn get_proxy_builder(
     listening_addr: &str,
     ca_priv_key_path: &str,
