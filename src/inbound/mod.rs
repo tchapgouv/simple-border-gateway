@@ -25,7 +25,7 @@ pub(crate) async fn create_proxy<F>(
     F: Future<Output = ()> + Send + 'static,
 {
     let state = GatewayState {
-        http_client: create_http_client(),
+        http_client: create_http_client(None),
         destination_base_urls,
         public_key_map,
     };

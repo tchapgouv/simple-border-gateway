@@ -48,6 +48,7 @@ async fn create_mock_server_and_proxy(temp_dir: &TempDir) -> MockServer {
             allowed_client_domains,
             allowed_external_domains,
             crate::util::shutdown_signal(),
+            None,
             Some(mock_server_host),
         )
         .await;

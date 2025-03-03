@@ -66,13 +66,21 @@ impl Header for XForwardedHost {
 }
 
 #[cfg(feature = "rustls")]
-pub(crate) fn create_http_client() -> reqwest::Client {
-    reqwest::Client::builder().use_rustls_tls().build().unwrap()
+pub(crate) fn create_http_client(upstream_proxy: Option<String>) -> reqwest::Client {
+    let mut builder = reqwest::Client::builder().use_rustls_tls();
+    if let Some(upstream_proxy) = upstream_proxy {
+        builder = builder.proxy(reqwest::Proxy::all(upstream_proxy).unwrap());
+    }
+    builder.build().unwrap()
 }
 
 #[cfg(feature = "native-tls")]
-pub(crate) fn create_http_client() -> reqwest::Client {
-    reqwest::Client::builder().build().unwrap()
+pub(crate) fn create_http_client(upstream_proxy: Option<String>) -> reqwest::Client {
+    let mut builder = reqwest::Client::builder();
+    if let Some(upstream_proxy) = upstream_proxy {
+        builder = builder.proxy(reqwest::Proxy::all(upstream_proxy).unwrap());
+    }
+    builder.build().unwrap()
 }
 
 #[cfg(feature = "aws_lc_rs")]
