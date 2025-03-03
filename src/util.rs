@@ -3,11 +3,11 @@ use http::{HeaderName, HeaderValue, StatusCode};
 use serde_json::{json, Value};
 
 pub(crate) fn create_forbidden_json(errcode: &str, error_msg: Option<&str>) -> Value {
-    return if let Some(error_msg_val) = error_msg {
+    if let Some(error_msg_val) = error_msg {
         json!({"errcode": errcode, "error": error_msg_val})
     } else {
         json!({"errcode": errcode})
-    };
+    }
 }
 
 pub(crate) fn create_empty_response<B>(status: StatusCode) -> http::Response<B>
@@ -37,7 +37,7 @@ where
         .unwrap()
 }
 
-static X_FORWARDED_HOST_HEADER: &'static str = "x-forwarded-host";
+static X_FORWARDED_HOST_HEADER: &str = "x-forwarded-host";
 static X_FORWARDED_HOST_HEADER_NAME: HeaderName = HeaderName::from_static(X_FORWARDED_HOST_HEADER);
 
 pub(crate) struct XForwardedHost(pub String);
@@ -73,4 +73,19 @@ pub(crate) fn create_http_client() -> reqwest::Client {
 #[cfg(feature = "native-tls")]
 pub(crate) fn create_http_client() -> reqwest::Client {
     reqwest::Client::builder().build().unwrap()
+}
+
+#[cfg(feature = "aws_lc_rs")]
+use hudsucker::rustls::crypto::aws_lc_rs as crypto_provider;
+#[cfg(feature = "ring")]
+use hudsucker::rustls::crypto::ring as crypto_provider;
+
+pub(crate) fn install_crypto_provider() {
+    let _ = crypto_provider::default_provider().install_default();
+}
+
+pub(crate) async fn shutdown_signal() {
+    tokio::signal::ctrl_c()
+        .await
+        .expect("Failed to install CTRL+C signal handler");
 }

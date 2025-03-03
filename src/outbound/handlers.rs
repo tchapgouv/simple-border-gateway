@@ -17,8 +17,10 @@ use crate::{
 
 lazy_static! {
     static ref ENDPOINT_PATTERN_RE: Regex = Regex::new("\\{[^\\}]*}").unwrap();
-    static ref REGEX_CLIENT_WELLKNOWN_ENDPOINT: RegexEndpoint = RegexEndpoint::from(CLIENT_WELLKNOWN_ENDPOINT);
-    static ref REGEX_SERVER_WELLKNOWN_ENDPOINT: RegexEndpoint = RegexEndpoint::from(SERVER_WELLKNOWN_ENDPOINT);
+    static ref REGEX_CLIENT_WELLKNOWN_ENDPOINT: RegexEndpoint =
+        RegexEndpoint::from(CLIENT_WELLKNOWN_ENDPOINT);
+    static ref REGEX_SERVER_WELLKNOWN_ENDPOINT: RegexEndpoint =
+        RegexEndpoint::from(SERVER_WELLKNOWN_ENDPOINT);
     static ref REGEX_FEDERATION_ENDPOINTS: Vec<RegexEndpoint> =
         Vec::from_iter(FEDERATION_ENDPOINTS.map(RegexEndpoint::from));
     static ref REGEX_MEDIA_CLIENT_LEGACY_ENDPOINTS: Vec<RegexEndpoint> =
@@ -33,7 +35,7 @@ struct RegexEndpoint {
 
 impl RegexEndpoint {
     fn from(endpoint: Endpoint) -> Self {
-        let regex_str = ENDPOINT_PATTERN_RE.replace_all(&endpoint.path, ".*");
+        let regex_str = ENDPOINT_PATTERN_RE.replace_all(endpoint.path, ".*");
         let regex = Regex::new(&regex_str).unwrap();
         RegexEndpoint { regex, endpoint }
     }
@@ -45,6 +47,7 @@ pub(crate) struct LogHandler {
     allowed_federation_domains: HashSet<String>,
     allowed_client_domains: HashSet<String>,
     allowed_external_domains: HashSet<String>,
+    _for_tests_only_mock_server_host: Option<String>,
 }
 
 impl LogHandler {
@@ -53,12 +56,14 @@ impl LogHandler {
         allowed_federation_domains: Vec<String>,
         allowed_client_domains: Vec<String>,
         allowed_external_domains: Vec<String>,
+        _for_tests_only_mock_server_host: Option<String>,
     ) -> Self {
         LogHandler {
             allowed_servernames: HashSet::from_iter(allowed_servernames),
             allowed_federation_domains: HashSet::from_iter(allowed_federation_domains),
             allowed_client_domains: HashSet::from_iter(allowed_client_domains),
             allowed_external_domains: HashSet::from_iter(allowed_external_domains),
+            _for_tests_only_mock_server_host,
         }
     }
 }
@@ -69,7 +74,7 @@ fn is_valid_request(req: &http::Request<Body>, allowed_endpoints: &[RegexEndpoin
             return true;
         }
     }
-    return false;
+    false
 }
 
 fn is_valid_request_for_endpoint(req: &http::Request<Body>, endpoint: &RegexEndpoint) -> bool {
@@ -82,18 +87,31 @@ fn is_valid_request_for_endpoint(req: &http::Request<Body>, endpoint: &RegexEndp
             return true;
         }
     }
-    return false;
+    false
 }
 
 impl HttpHandler for LogHandler {
     async fn handle_request(
         &mut self,
         _ctx: &HttpContext,
-        req: http::Request<Body>,
+        mut req: http::Request<Body>,
     ) -> RequestOrResponse {
-        let method = req.method();
+        let method = req.method().clone();
         if method != Method::CONNECT {
-            let destination = req.uri().host().unwrap_or("");
+            let uri = req.uri().clone();
+            let destination = uri.host().unwrap_or("");
+
+            if let Some(host) = &self._for_tests_only_mock_server_host {
+                let parts = uri.clone().into_parts();
+                let mut builder = http::uri::Builder::new()
+                    .scheme("http")
+                    .authority(host.as_str());
+                if let Some(path_and_query) = parts.path_and_query {
+                    builder = builder.path_and_query(path_and_query);
+                }
+                *req.uri_mut() = builder.build().unwrap();
+            }
+
             let path_and_query = req
                 .uri()
                 .path_and_query()

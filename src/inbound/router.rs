@@ -9,7 +9,9 @@ use http::Method;
 use tower_http::trace;
 use tracing::Level;
 
-use crate::matrix_spec::{AuthType, CLIENT_GLOBAL_ENDPOINT, FEDERATION_ENDPOINTS};
+use crate::matrix_spec::{
+    AuthType, CLIENT_GLOBAL_ENDPOINT, FEDERATION_ENDPOINTS, SERVER_WELLKNOWN_ENDPOINT,
+};
 
 use super::{
     handlers::{forbidden_handler, forward_handler, verify_signature_handler},
@@ -23,14 +25,19 @@ pub(crate) fn create_router(state: GatewayState, allow_all_client_traffic: bool)
             .on_response(trace::DefaultOnResponse::new().level(Level::TRACE)),
     );
 
+    r = r.route(
+        SERVER_WELLKNOWN_ENDPOINT.path,
+        get_method_router(SERVER_WELLKNOWN_ENDPOINT.method, forward_handler),
+    );
+
     for endpoint in FEDERATION_ENDPOINTS {
         r = match endpoint.auth_type {
             AuthType::Unauthenticated => r.route(
-                &endpoint.path,
+                endpoint.path,
                 get_method_router(endpoint.method, forward_handler),
             ),
             AuthType::CheckSignature => r.route(
-                &endpoint.path,
+                endpoint.path,
                 get_method_router(endpoint.method, verify_signature_handler),
             ),
             // AuthType::Forbidden => r.route(

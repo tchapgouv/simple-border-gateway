@@ -26,8 +26,8 @@ pub(crate) async fn create_proxy<F>(
 {
     let state = GatewayState {
         http_client: create_http_client(),
-        destination_base_urls: destination_base_urls,
-        public_key_map: public_key_map,
+        destination_base_urls,
+        public_key_map,
     };
 
     let listener =
@@ -42,3 +42,6 @@ pub(crate) async fn create_proxy<F>(
     .await
     .unwrap();
 }
+
+#[cfg(test)]
+mod tests;
