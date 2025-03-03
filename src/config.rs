@@ -24,6 +24,7 @@ pub(crate) struct BorderGatewayConfig {
     #[serde(default)]
     pub(crate) allow_all_client_traffic: bool,
     pub(crate) outbound_proxy: OutboundProxyConfig,
+    pub(crate) upstream_proxy: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]

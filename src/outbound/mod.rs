@@ -39,6 +39,7 @@ pub(crate) async fn create_proxy<F>(
     allowed_client_domains: Vec<String>,
     allowed_external_domains_dangerous: Vec<String>,
     shutdown_signal: F,
+    upstream_proxy: Option<String>,
     _for_tests_only_mock_server_host: Option<String>,
 ) where
     F: Future<Output = ()> + Send + 'static,
@@ -51,6 +52,7 @@ pub(crate) async fn create_proxy<F>(
             allowed_federation_domains,
             allowed_client_domains,
             allowed_external_domains_dangerous,
+            upstream_proxy,
             _for_tests_only_mock_server_host,
         ))
         .with_graceful_shutdown(shutdown_signal)
