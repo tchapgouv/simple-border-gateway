@@ -41,8 +41,9 @@ toml = "0.8"
 
 [dev-dependencies]
 axum-test = "17"
-httpmock = "0.7"
+httpmock = "0.8.0-alpha.1"
 tempfile = "3"
+async_once = "0.2"
 
 [features]
 default = ["rustls", "aws_lc_rs"]
