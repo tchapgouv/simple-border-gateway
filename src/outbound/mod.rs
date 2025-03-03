@@ -29,6 +29,7 @@ use hudsucker::{
 
 mod handlers;
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn create_proxy<F>(
     listening_addr: &str,
     ca_priv_key_path: &str,
@@ -38,6 +39,7 @@ pub(crate) async fn create_proxy<F>(
     allowed_client_domains: Vec<String>,
     allowed_external_domains_dangerous: Vec<String>,
     shutdown_signal: F,
+    _for_tests_only_mock_server_host: Option<String>,
 ) where
     F: Future<Output = ()> + Send + 'static,
 {
@@ -49,6 +51,7 @@ pub(crate) async fn create_proxy<F>(
             allowed_federation_domains,
             allowed_client_domains,
             allowed_external_domains_dangerous,
+            _for_tests_only_mock_server_host,
         ))
         .with_graceful_shutdown(shutdown_signal)
         .build()
@@ -121,3 +124,6 @@ pub(crate) fn get_proxy_builder(
         .with_ca(ca)
         .with_rustls_client(crypto_provider::default_provider())
 }
+
+#[cfg(test)]
+mod tests;

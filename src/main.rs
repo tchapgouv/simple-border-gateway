@@ -10,17 +10,7 @@ use std::{collections::BTreeMap, fs};
 use config::BorderGatewayConfig;
 use ruma::{serde::Base64, signatures::PublicKeyMap};
 use tracing::subscriber::NoSubscriber;
-
-#[cfg(feature = "aws_lc_rs")]
-use hudsucker::rustls::crypto::aws_lc_rs as crypto_provider;
-#[cfg(feature = "ring")]
-use hudsucker::rustls::crypto::ring as crypto_provider;
-
-async fn shutdown_signal() {
-    tokio::signal::ctrl_c()
-        .await
-        .expect("Failed to install CTRL+C signal handler");
-}
+use util::{install_crypto_provider, shutdown_signal};
 
 #[tokio::main]
 async fn main() {
@@ -34,9 +24,7 @@ async fn main() {
     let config: BorderGatewayConfig =
         toml::from_str(&config_toml_str).expect("Failed to deserialize config file");
 
-    crypto_provider::default_provider()
-        .install_default()
-        .unwrap();
+    install_crypto_provider();
 
     let mut destination_base_urls: BTreeMap<String, String> = BTreeMap::new();
     for hs in config.internal_homeservers {
@@ -84,6 +72,7 @@ async fn main() {
             allowed_client_domains,
             config.outbound_proxy.allowed_external_domains_dangerous,
             shutdown_signal(),
+            None,
         )
         .await;
     });

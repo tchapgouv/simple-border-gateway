@@ -41,10 +41,12 @@ toml = "0.8"
 
 [dev-dependencies]
 axum-test = "17"
+httpmock = "0.7"
+tempfile = "3"
 
 [features]
 default = ["rustls", "aws_lc_rs"]
 native-tls = ["hudsucker/native-tls-client", "hudsucker/openssl-ca"]
 rustls = ["dep:rustls", "dep:rcgen", "hudsucker/rustls-client", "hudsucker/rcgen-ca", "reqwest/rustls-tls-native-roots-no-provider"]
-ring = ["rustls/ring"]
-aws_lc_rs = ["rustls/aws_lc_rs"]
+ring = ["rustls?/ring"]
+aws_lc_rs = ["rustls?/aws_lc_rs", "rcgen?/aws_lc_rs"]

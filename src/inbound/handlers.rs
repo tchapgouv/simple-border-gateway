@@ -92,7 +92,7 @@ pub(crate) async fn verify_signature_handler(
         }
         Err(e) => {
             warn!("{x_forwarded_host} {method} {uri} : authorized server {origin} but wrong signature, forbid request, {e}");
-            return create_empty_response(StatusCode::FORBIDDEN);
+            create_empty_response(StatusCode::FORBIDDEN)
         }
     }
 }
@@ -137,7 +137,7 @@ async fn verify_signature(
         .try_into()
         .unwrap(); // TODO
 
-    verify_json(&public_key_map, canonical_signed_json.as_object().unwrap()) // TODO
+    verify_json(public_key_map, canonical_signed_json.as_object().unwrap()) // TODO
 }
 
 pub(crate) async fn forward_incoming_request(
@@ -176,7 +176,7 @@ pub(crate) async fn forward_incoming_request(
         .await;
 
     match res {
-        Ok(resp) => return convert_response(resp).unwrap(), // TODO
+        Ok(resp) => convert_response(resp).unwrap(), // TODO
         Err(e) => {
             warn!("{method} {path_and_query} : error forwarding the req to {dest_base_url} {e}");
             create_empty_response(StatusCode::BAD_GATEWAY)
