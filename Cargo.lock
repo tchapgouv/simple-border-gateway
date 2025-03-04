@@ -2715,7 +2715,6 @@ dependencies = [
  "httpmock",
  "hudsucker",
  "hyper",
- "lazy_static",
  "log",
  "rcgen",
  "regex",

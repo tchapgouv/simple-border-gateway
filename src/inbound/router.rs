@@ -27,18 +27,18 @@ pub(crate) fn create_router(state: GatewayState, allow_all_client_traffic: bool)
 
     r = r.route(
         SERVER_WELLKNOWN_ENDPOINT.path,
-        get_method_router(SERVER_WELLKNOWN_ENDPOINT.method, forward_handler),
+        get_method_router(&SERVER_WELLKNOWN_ENDPOINT.method, forward_handler),
     );
 
     for endpoint in FEDERATION_ENDPOINTS {
         r = match endpoint.auth_type {
             AuthType::Unauthenticated => r.route(
                 endpoint.path,
-                get_method_router(endpoint.method, forward_handler),
+                get_method_router(&endpoint.method, forward_handler),
             ),
             AuthType::CheckSignature => r.route(
                 endpoint.path,
-                get_method_router(endpoint.method, verify_signature_handler),
+                get_method_router(&endpoint.method, verify_signature_handler),
             ),
             // AuthType::Forbidden => r.route(
             //     &endpoint.path,
@@ -56,7 +56,10 @@ pub(crate) fn create_router(state: GatewayState, allow_all_client_traffic: bool)
     r.with_state(state)
 }
 
-pub fn get_method_router<H, T, S>(method: Option<Method>, handler: H) -> MethodRouter<S, Infallible>
+pub fn get_method_router<H, T, S>(
+    method: &Option<Method>,
+    handler: H,
+) -> MethodRouter<S, Infallible>
 where
     H: Handler<T, S>,
     T: 'static,

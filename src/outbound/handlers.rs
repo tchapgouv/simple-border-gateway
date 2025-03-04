@@ -1,9 +1,6 @@
 use std::collections::HashSet;
 
 use http::{Method, StatusCode};
-use http_body_util::BodyExt;
-use hyper::body::Body as _;
-use lazy_static::lazy_static;
 use log::{info, warn};
 use regex::Regex;
 
@@ -14,20 +11,25 @@ use crate::{
         Endpoint, CLIENT_WELLKNOWN_ENDPOINT, FEDERATION_ENDPOINTS, MEDIA_CLIENT_LEGACY_ENDPOINTS,
         SERVER_WELLKNOWN_ENDPOINT,
     },
-    util::{create_forbidden_response, create_http_client},
+    util::{
+        convert_hudsucker_request_to_reqwest_request,
+        convert_reqwest_response_to_hudsucker_response, create_forbidden_response,
+        create_http_client,
+    },
 };
 
-lazy_static! {
-    static ref ENDPOINT_PATTERN_RE: Regex = Regex::new("\\{[^\\}]*}").unwrap();
-    static ref REGEX_CLIENT_WELLKNOWN_ENDPOINT: RegexEndpoint =
-        RegexEndpoint::from(CLIENT_WELLKNOWN_ENDPOINT);
-    static ref REGEX_SERVER_WELLKNOWN_ENDPOINT: RegexEndpoint =
-        RegexEndpoint::from(SERVER_WELLKNOWN_ENDPOINT);
-    static ref REGEX_FEDERATION_ENDPOINTS: Vec<RegexEndpoint> =
-        Vec::from_iter(FEDERATION_ENDPOINTS.map(RegexEndpoint::from));
-    static ref REGEX_MEDIA_CLIENT_LEGACY_ENDPOINTS: Vec<RegexEndpoint> =
-        Vec::from_iter(MEDIA_CLIENT_LEGACY_ENDPOINTS.map(RegexEndpoint::from));
-}
+static ENDPOINT_PATTERN_RE: std::sync::LazyLock<Regex> =
+    std::sync::LazyLock::new(|| Regex::new("\\{[^\\}]*}").unwrap());
+static REGEX_CLIENT_WELLKNOWN_ENDPOINT: std::sync::LazyLock<RegexEndpoint> =
+    std::sync::LazyLock::new(|| RegexEndpoint::from(CLIENT_WELLKNOWN_ENDPOINT));
+static REGEX_SERVER_WELLKNOWN_ENDPOINT: std::sync::LazyLock<RegexEndpoint> =
+    std::sync::LazyLock::new(|| RegexEndpoint::from(SERVER_WELLKNOWN_ENDPOINT));
+static REGEX_FEDERATION_ENDPOINTS: std::sync::LazyLock<Vec<RegexEndpoint>> =
+    std::sync::LazyLock::new(|| Vec::from_iter(FEDERATION_ENDPOINTS.map(RegexEndpoint::from)));
+static REGEX_MEDIA_CLIENT_LEGACY_ENDPOINTS: std::sync::LazyLock<Vec<RegexEndpoint>> =
+    std::sync::LazyLock::new(|| {
+        Vec::from_iter(MEDIA_CLIENT_LEGACY_ENDPOINTS.map(RegexEndpoint::from))
+    });
 
 #[derive(Clone)]
 struct RegexEndpoint {
@@ -45,7 +47,7 @@ impl RegexEndpoint {
 
 #[derive(Clone)]
 pub(crate) struct LogHandler {
-    http_client: reqwest::Client,
+    http_client: Option<reqwest::Client>,
     allowed_servernames: HashSet<String>,
     allowed_federation_domains: HashSet<String>,
     allowed_client_domains: HashSet<String>,
@@ -63,7 +65,8 @@ impl LogHandler {
         _for_tests_only_mock_server_host: Option<String>,
     ) -> Self {
         LogHandler {
-            http_client: create_http_client(upstream_proxy),
+            http_client: upstream_proxy
+                .map(|upstream_proxy| create_http_client(Some(upstream_proxy))),
             allowed_servernames: HashSet::from_iter(allowed_servernames),
             allowed_federation_domains: HashSet::from_iter(allowed_federation_domains),
             allowed_client_domains: HashSet::from_iter(allowed_client_domains),
@@ -72,92 +75,22 @@ impl LogHandler {
         }
     }
 
-    async fn execute_request_with_reqwest(
+    async fn forward_outgoing_request(
         &self,
         req: http::Request<Body>,
-    ) -> Result<http::Response<Body>, Box<dyn std::error::Error>> {
-        let request = self
-            .convert_hudsucker_request_to_reqwest_request(req)
-            .await?;
-        let response = self.http_client.execute(request).await?;
-        self.convert_reqwest_response_to_hudsucker_response(response)
-            .await
-    }
-
-    async fn convert_hudsucker_request_to_reqwest_request(
-        &self,
-        req: http::Request<Body>,
-    ) -> Result<reqwest::Request, Box<dyn std::error::Error>> {
-        // Extract URI components
-        let uri = req.uri();
-        let method = req.method().clone();
-
-        // Build the URL
-        let url_str = if uri.scheme().is_none() || uri.authority().is_none() {
-            // If scheme or authority is missing, assume it's a relative URL
-            format!(
-                "{}://{}{}",
-                uri.scheme().unwrap_or(&http::uri::Scheme::HTTP),
-                uri.authority()
-                    .unwrap_or(&http::uri::Authority::from_static("localhost")),
-                uri.path_and_query().map(|p| p.as_str()).unwrap_or("")
-            )
+    ) -> Result<RequestOrResponse, Box<dyn core::error::Error>> {
+        // `http_client` is defined if an upstream proxy is configured
+        // In this case, we need to execute the request with reqwest `http_client`,
+        // which is already configured to u
+        if let Some(http_client) = &self.http_client {
+            let request = convert_hudsucker_request_to_reqwest_request(req, http_client).await?;
+            let response = http_client.execute(request).await?;
+            Ok(convert_reqwest_response_to_hudsucker_response(response)
+                .await?
+                .into())
         } else {
-            // Full URL is available
-            uri.to_string()
-        };
-
-        // Create reqwest request builder
-        let mut request_builder = self
-            .http_client
-            .request(method, url_str.parse::<reqwest::Url>()?);
-
-        // Copy headers
-        for (name, value) in req.headers() {
-            request_builder = request_builder.header(name, value.clone());
+            Ok(req.into())
         }
-
-        // Handle body using streaming approach
-        let (_, body) = req.into_parts();
-
-        // Convert hudsucker Body to reqwest streaming body
-        if !body.is_end_stream() {
-            let stream = futures::StreamExt::map(body.into_data_stream(), |result| {
-                result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
-            });
-            request_builder = request_builder.body(reqwest::Body::wrap_stream(stream));
-        }
-
-        let request = request_builder.build()?;
-        Ok(request)
-    }
-
-    async fn convert_reqwest_response_to_hudsucker_response(
-        &self,
-        response: reqwest::Response,
-    ) -> Result<http::Response<Body>, Box<dyn std::error::Error>> {
-        // Build the response
-        let status = response.status();
-        let mut response_builder = http::Response::builder().status(status);
-
-        // Copy headers
-        let headers = response_builder.headers_mut().unwrap();
-        for (name, value) in response.headers() {
-            headers.insert(name, value.clone());
-        }
-
-        // Handle the response body
-        let body = if response.content_length().is_none_or(|length| length > 0) {
-            Body::from_stream(futures::StreamExt::map(response.bytes_stream(), |result| {
-                result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
-            }))
-        } else {
-            Body::empty()
-        };
-
-        response_builder
-            .body(body)
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
     }
 }
 
@@ -214,7 +147,7 @@ impl HttpHandler for LogHandler {
                 info!(
                     "{destination} {method} {path_and_query} : destination in allowed_external_domains, forward",
                 );
-                return self.execute_request_with_reqwest(req).await.unwrap().into();
+                return self.forward_outgoing_request(req).await.unwrap();
             }
 
             if is_valid_request_for_endpoint(&req, &REGEX_SERVER_WELLKNOWN_ENDPOINT) {
@@ -222,7 +155,7 @@ impl HttpHandler for LogHandler {
                     info!(
                         "{destination} {method} {path_and_query} : valid and allowed server well-known request, forward",
                     );
-                    return self.execute_request_with_reqwest(req).await.unwrap().into();
+                    return self.forward_outgoing_request(req).await.unwrap();
                 } else {
                     warn!(
                         "{destination} {method} {path_and_query} : not an allowed well-known server request, block",
@@ -236,7 +169,7 @@ impl HttpHandler for LogHandler {
                     info!(
                         "{destination} {method} {path_and_query} : valid and allowed client well-known request, forward",
                     );
-                    return self.execute_request_with_reqwest(req).await.unwrap().into();
+                    return self.forward_outgoing_request(req).await.unwrap();
                 } else {
                     warn!(
                         "{destination} {method} {path_and_query} : not an allowed well-known client request, block",
@@ -250,7 +183,7 @@ impl HttpHandler for LogHandler {
                     info!(
                         "{destination} {method} {path_and_query} : valid and allowed federation request, forward",
                     );
-                    return self.execute_request_with_reqwest(req).await.unwrap().into();
+                    return self.forward_outgoing_request(req).await.unwrap();
                 } else {
                     warn!(
                         "{destination} {method} {path_and_query} : not an allowed federation request, block",
@@ -264,7 +197,7 @@ impl HttpHandler for LogHandler {
                     info!(
                         "{destination} {method} {path_and_query} : valid and allowed media client legacy request, forward",
                     );
-                    return self.execute_request_with_reqwest(req).await.unwrap().into();
+                    return self.forward_outgoing_request(req).await.unwrap();
                 } else {
                     warn!(
                         "{destination} {method} {path_and_query} : not an allowed media client legacy request, block",
