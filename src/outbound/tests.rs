@@ -1,17 +1,20 @@
-use async_once::AsyncOnce;
+use std::sync::LazyLock;
+
 use http::{header::HOST, StatusCode};
 use httpmock::MockServer;
-use lazy_static::lazy_static;
 use rcgen::{CertificateParams, IsCa, KeyPair};
 use tempfile::TempDir;
-use tokio::fs;
+use tokio::{fs, sync::OnceCell};
 
 use crate::outbound;
 
-lazy_static! {
-    static ref TEMP_DIR: TempDir = tempfile::tempdir().unwrap();
-    static ref MOCK_SERVER: AsyncOnce<MockServer> =
-        AsyncOnce::new(create_mock_server_and_proxy(&*TEMP_DIR));
+static TEMP_DIR: LazyLock<TempDir> = LazyLock::new(|| tempfile::tempdir().unwrap());
+
+static MOCK_SERVER: OnceCell<MockServer> = OnceCell::const_new();
+async fn get_mock_server() -> &'static MockServer {
+    MOCK_SERVER
+        .get_or_init(|| async { create_mock_server_and_proxy(&*TEMP_DIR).await })
+        .await
 }
 
 async fn create_mock_server_and_proxy(temp_dir: &TempDir) -> MockServer {
@@ -61,7 +64,7 @@ async fn create_mock_server_and_proxy(temp_dir: &TempDir) -> MockServer {
 
 #[tokio::test]
 async fn test_well_known_endpoint() {
-    let mock_server = MOCK_SERVER.get().await;
+    let mock_server = get_mock_server().await;
 
     let mock = mock_server.mock(|when, then| {
         when.method("GET").path("/.well-known/matrix/server");

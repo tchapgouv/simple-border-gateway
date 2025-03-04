@@ -42,9 +42,9 @@ async fn main() {
         allowed_client_domains.push(hs.client_domain);
 
         let mut verify_keys: BTreeMap<String, Base64> = BTreeMap::new();
-        for (k, v) in hs.verify_keys.iter() {
+        for (k, v) in hs.verify_keys {
             verify_keys.insert(
-                k.clone(),
+                k,
                 Base64::parse(v).expect("Failed to parse verify key as base64"),
             );
         }

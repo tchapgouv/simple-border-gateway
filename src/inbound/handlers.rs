@@ -18,13 +18,10 @@ use ruma::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use lazy_static::lazy_static;
-
 use super::GatewayState;
 
-lazy_static! {
-    static ref REMOVE_DEFAULT_PORTS_REGEX: Regex = Regex::new(r"(:443|:80)$").unwrap();
-}
+static REMOVE_DEFAULT_PORTS_REGEX: std::sync::LazyLock<Regex> =
+    std::sync::LazyLock::new(|| Regex::new(r"(:443|:80)$").unwrap());
 
 pub(crate) async fn forbidden_handler(
     method: Method,
@@ -75,9 +72,7 @@ pub(crate) async fn verify_signature_handler(
         &uri,
         x_matrix,
         body.as_str(),
-    )
-    .await
-    {
+    ) {
         Ok(_) => {
             info!("{x_forwarded_host} {method} {uri} : authorized server {origin} signature ok");
             forward_incoming_request(
@@ -107,7 +102,7 @@ struct SignedRequest {
     signatures: BTreeMap<String, BTreeMap<String, String>>,
 }
 
-async fn verify_signature(
+fn verify_signature(
     public_key_map: &PublicKeyMap,
     method: &Method,
     uri: &Uri,
@@ -152,18 +147,15 @@ pub(crate) async fn forward_incoming_request(
         .replace_all(x_forwarded_host.as_str(), "")
         .to_string();
 
-    let dest_base_url = match state
+    let dest_base_url = if let Some(dest_base_url) = state
         .destination_base_urls
         .clone()
         .get(x_forwarded_host.as_str())
     {
-        Some(dest_base_url) => dest_base_url.clone(),
-        None => {
-            warn!(
-                "{x_forwarded_host} {method} {path_and_query} : destination unknown, block request"
-            );
-            return create_empty_response(StatusCode::BAD_GATEWAY);
-        }
+        dest_base_url.clone()
+    } else {
+        warn!("{x_forwarded_host} {method} {path_and_query} : destination unknown, block request");
+        return create_empty_response(StatusCode::BAD_GATEWAY);
     };
 
     info!("{x_forwarded_host} {method} {path_and_query} : forward request to {dest_base_url}");
