@@ -80,10 +80,8 @@ impl LogHandler {
             .convert_hudsucker_request_to_reqwest_request(req)
             .await?;
         let response = self.http_client.execute(request).await?;
-        Ok(self
-            .convert_reqwest_response_to_hudsucker_response(response)
-            .await?
-            .into())
+        self.convert_reqwest_response_to_hudsucker_response(response)
+            .await
     }
 
     async fn convert_hudsucker_request_to_reqwest_request(
@@ -157,9 +155,9 @@ impl LogHandler {
             Body::empty()
         };
 
-        Ok(response_builder
+        response_builder
             .body(body)
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?)
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
     }
 }
 

@@ -2,6 +2,11 @@ use axum_extra::headers::Header;
 use http::{HeaderName, HeaderValue, StatusCode};
 use serde_json::{json, Value};
 
+#[cfg(feature = "aws_lc_rs")]
+pub(crate) use hudsucker::rustls::crypto::aws_lc_rs as crypto_provider;
+#[cfg(feature = "ring")]
+pub(crate) use hudsucker::rustls::crypto::ring as crypto_provider;
+
 pub(crate) fn create_forbidden_json(errcode: &str, error_msg: Option<&str>) -> Value {
     if let Some(error_msg_val) = error_msg {
         json!({"errcode": errcode, "error": error_msg_val})
@@ -72,11 +77,6 @@ pub(crate) fn create_http_client(upstream_proxy: Option<String>) -> reqwest::Cli
     }
     builder.build().unwrap()
 }
-
-#[cfg(feature = "aws_lc_rs")]
-use hudsucker::rustls::crypto::aws_lc_rs as crypto_provider;
-#[cfg(feature = "ring")]
-use hudsucker::rustls::crypto::ring as crypto_provider;
 
 pub(crate) fn install_crypto_provider() {
     let _ = crypto_provider::default_provider().install_default();
