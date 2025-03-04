@@ -10,11 +10,6 @@ use hudsucker::{
     NoopHandler,
 };
 
-#[cfg(feature = "aws_lc_rs")]
-use hudsucker::rustls::crypto::aws_lc_rs as crypto_provider;
-#[cfg(feature = "ring")]
-use hudsucker::rustls::crypto::ring as crypto_provider;
-
 use hudsucker::Proxy;
 use hudsucker::{
     certificate_authority::RcgenAuthority,
@@ -81,13 +76,13 @@ pub(crate) fn get_proxy_builder(
         key_pair,
         ca_cert,
         1_000,
-        crypto_provider::default_provider(),
+        crate::util::crypto_provider::default_provider(),
     );
 
     Proxy::builder()
         .with_addr(listening_addr.parse().unwrap())
         .with_ca(ca)
-        .with_rustls_client(crypto_provider::default_provider())
+        .with_rustls_client(crate::util::crypto_provider::default_provider())
 }
 
 #[cfg(test)]
