@@ -4,6 +4,8 @@ use http_body_util::BodyExt as _;
 use hyper::body::Body as _;
 use serde_json::{json, Value};
 
+use crate::config::UpstreamProxyConfig;
+
 #[cfg(feature = "aws_lc_rs")]
 pub(crate) use hudsucker::rustls::crypto::aws_lc_rs as crypto_provider;
 #[cfg(feature = "ring")]
@@ -72,10 +74,17 @@ impl Header for XForwardedHost {
     }
 }
 
-pub(crate) fn create_http_client(upstream_proxy: Option<String>) -> reqwest::Client {
+pub(crate) fn create_http_client(
+    upstream_proxy_config: Option<UpstreamProxyConfig>,
+) -> reqwest::Client {
+    install_crypto_provider();
     let mut builder = reqwest::Client::builder().use_rustls_tls();
-    if let Some(upstream_proxy) = upstream_proxy {
-        builder = builder.proxy(reqwest::Proxy::all(upstream_proxy).unwrap());
+    if let Some(upstream_proxy_config) = upstream_proxy_config {
+        builder = builder.proxy(reqwest::Proxy::all(upstream_proxy_config.url).unwrap());
+        if let Some(ca_pem) = upstream_proxy_config.ca_pem {
+            builder = builder
+                .add_root_certificate(reqwest::Certificate::from_pem(ca_pem.as_bytes()).unwrap());
+        }
     }
     builder.build().unwrap()
 }
@@ -161,4 +170,15 @@ pub(crate) async fn convert_reqwest_response_to_hudsucker_response(
     response_builder
         .body(body)
         .map_err(|e| Box::new(e) as Box<dyn core::error::Error>)
+}
+
+pub(crate) fn set_req_authority_for_tests<B>(req: &mut http::Request<B>, authority: &str) {
+    let parts = req.uri().clone().into_parts();
+    let mut builder = http::uri::Builder::new()
+        .scheme("http")
+        .authority(authority);
+    if let Some(path_and_query) = parts.path_and_query {
+        builder = builder.path_and_query(path_and_query);
+    }
+    *req.uri_mut() = builder.build().unwrap();
 }

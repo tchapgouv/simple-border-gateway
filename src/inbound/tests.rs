@@ -1,6 +1,6 @@
 #[cfg(test)]
 use crate::inbound;
-use crate::util::{install_crypto_provider, shutdown_signal};
+use crate::util::shutdown_signal;
 use http::header::HOST;
 use http::StatusCode;
 use ruma::serde::Base64;
@@ -24,8 +24,6 @@ const WELL_FORMED_PUBKEY: &[u8] = &[
 
 #[tokio::test]
 async fn test_well_known_endpoint() {
-    install_crypto_provider();
-
     let mock_server = httpmock::MockServer::start();
 
     let mock = mock_server.mock(|when, then| {
@@ -51,7 +49,7 @@ async fn test_well_known_endpoint() {
 
     tokio::spawn(async move {
         inbound::create_proxy(
-            "0.0.0.0:9999",
+            "0.0.0.0:8888",
             shutdown_signal(),
             destination_base_urls,
             public_key_map,
@@ -64,7 +62,7 @@ async fn test_well_known_endpoint() {
 
     let client = reqwest::Client::new();
     let response = client
-        .get("http://0.0.0.0:9999/.well-known/matrix/server")
+        .get("http://0.0.0.0:8888/.well-known/matrix/server")
         .header(HOST, "example.com")
         .header("X-Forwarded-Host", "example.com")
         .send()

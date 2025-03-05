@@ -7,6 +7,7 @@ use regex::Regex;
 use hudsucker::{Body, HttpContext, HttpHandler, RequestOrResponse};
 
 use crate::{
+    config::UpstreamProxyConfig,
     matrix_spec::{
         Endpoint, CLIENT_WELLKNOWN_ENDPOINT, FEDERATION_ENDPOINTS, MEDIA_CLIENT_LEGACY_ENDPOINTS,
         SERVER_WELLKNOWN_ENDPOINT,
@@ -14,7 +15,7 @@ use crate::{
     util::{
         convert_hudsucker_request_to_reqwest_request,
         convert_reqwest_response_to_hudsucker_response, create_forbidden_response,
-        create_http_client,
+        create_http_client, set_req_authority_for_tests,
     },
 };
 
@@ -61,12 +62,12 @@ impl LogHandler {
         allowed_federation_domains: Vec<String>,
         allowed_client_domains: Vec<String>,
         allowed_external_domains: Vec<String>,
-        upstream_proxy: Option<String>,
+        upstream_proxy_config: Option<UpstreamProxyConfig>,
         _for_tests_only_mock_server_host: Option<String>,
     ) -> Self {
         LogHandler {
-            http_client: upstream_proxy
-                .map(|upstream_proxy| create_http_client(Some(upstream_proxy))),
+            http_client: upstream_proxy_config
+                .map(|upstream_proxy_config| create_http_client(Some(upstream_proxy_config))),
             allowed_servernames: HashSet::from_iter(allowed_servernames),
             allowed_federation_domains: HashSet::from_iter(allowed_federation_domains),
             allowed_client_domains: HashSet::from_iter(allowed_client_domains),
@@ -128,14 +129,7 @@ impl HttpHandler for LogHandler {
             let destination = uri.host().unwrap_or("");
 
             if let Some(host) = &self._for_tests_only_mock_server_host {
-                let parts = uri.clone().into_parts();
-                let mut builder = http::uri::Builder::new()
-                    .scheme("http")
-                    .authority(host.as_str());
-                if let Some(path_and_query) = parts.path_and_query {
-                    builder = builder.path_and_query(path_and_query);
-                }
-                *req.uri_mut() = builder.build().unwrap();
+                set_req_authority_for_tests(&mut req, host);
             }
 
             let path_and_query = req
