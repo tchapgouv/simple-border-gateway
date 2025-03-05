@@ -4,7 +4,9 @@ allow_all_client_traffic = true
 ca_priv_key_path = "ca.pem"
 ca_cert_path = "ca.crt"
 
-upstream_proxy = "http://127.0.0.1:3128"
+[outbound_proxy.upstream_proxy]
+url = "https://127.0.0.1:3128"
+ca_pem = "==BEGIN CERTIFICATE==\n...\n==END CERTIFICATE=="
 
 allowed_external_domains_dangerous = [
     "ntfy.sh"

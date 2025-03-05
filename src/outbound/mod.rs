@@ -16,6 +16,8 @@ use hudsucker::{
     rcgen::{CertificateParams, KeyPair},
 };
 
+use crate::config::UpstreamProxyConfig;
+
 mod handlers;
 
 #[allow(clippy::too_many_arguments)]
@@ -28,7 +30,7 @@ pub(crate) async fn create_proxy<F>(
     allowed_client_domains: Vec<String>,
     allowed_external_domains_dangerous: Vec<String>,
     shutdown_signal: F,
-    upstream_proxy: Option<String>,
+    upstream_proxy_config: Option<UpstreamProxyConfig>,
     _for_tests_only_mock_server_host: Option<String>,
 ) where
     F: Future<Output = ()> + Send + 'static,
@@ -41,7 +43,7 @@ pub(crate) async fn create_proxy<F>(
             allowed_federation_domains,
             allowed_client_domains,
             allowed_external_domains_dangerous,
-            upstream_proxy,
+            upstream_proxy_config,
             _for_tests_only_mock_server_host,
         ))
         .with_graceful_shutdown(shutdown_signal)

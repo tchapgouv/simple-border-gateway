@@ -72,7 +72,7 @@ async fn main() {
             allowed_client_domains,
             config.outbound_proxy.allowed_external_domains_dangerous,
             shutdown_signal(),
-            config.upstream_proxy,
+            config.outbound_proxy.upstream_proxy,
             None,
         )
         .await;
