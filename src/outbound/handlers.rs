@@ -15,8 +15,9 @@ use crate::{
     util::{
         convert_hudsucker_request_to_reqwest_request,
         convert_reqwest_response_to_hudsucker_response, create_forbidden_response,
-        create_http_client, set_req_authority_for_tests,
+        create_http_client,
     },
+    tests_util::set_req_authority_for_tests,
 };
 
 static ENDPOINT_PATTERN_RE: std::sync::LazyLock<Regex> =
