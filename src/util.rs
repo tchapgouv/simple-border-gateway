@@ -171,3 +171,18 @@ pub(crate) async fn convert_reqwest_response_to_hudsucker_response(
         .body(body)
         .map_err(|e| Box::new(e) as Box<dyn core::error::Error>)
 }
+
+pub(crate) fn set_req_scheme_and_authority<B>(
+    req: &mut http::Request<B>,
+    scheme: &str,
+    authority: &str,
+) {
+    let parts = req.uri().clone().into_parts();
+    let mut builder = http::uri::Builder::new()
+        .scheme(scheme)
+        .authority(authority);
+    if let Some(path_and_query) = parts.path_and_query {
+        builder = builder.path_and_query(path_and_query);
+    }
+    *req.uri_mut() = builder.build().unwrap();
+}

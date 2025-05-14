@@ -3,7 +3,6 @@ mod outbound;
 
 mod config;
 mod matrix_spec;
-mod tests_util;
 mod util;
 
 use std::{collections::BTreeMap, fs};

@@ -4,18 +4,10 @@ use crate::util::shutdown_signal;
 use http::header::HOST;
 use http::StatusCode;
 use ruma::serde::Base64;
+// use ruma::signatures::{sign_json, Ed25519KeyPair};
+// use ruma::{CanonicalJsonObject, CanonicalJsonValue};
 use std::collections::BTreeMap;
-
-// const WELL_FORMED_DOC: &[u8] = &[
-//     0x30, 0x72, 0x02, 0x01, 0x01, 0x30, 0x05, 0x06, 0x03, 0x2B, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20,
-//     0xD4, 0xEE, 0x72, 0xDB, 0xF9, 0x13, 0x58, 0x4A, 0xD5, 0xB6, 0xD8, 0xF1, 0xF7, 0x69, 0xF8, 0xAD,
-//     0x3A, 0xFE, 0x7C, 0x28, 0xCB, 0xF1, 0xD4, 0xFB, 0xE0, 0x97, 0xA8, 0x8F, 0x44, 0x75, 0x58, 0x42,
-//     0xA0, 0x1F, 0x30, 0x1D, 0x06, 0x0A, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x09, 0x09, 0x14,
-//     0x31, 0x0F, 0x0C, 0x0D, 0x43, 0x75, 0x72, 0x64, 0x6C, 0x65, 0x20, 0x43, 0x68, 0x61, 0x69, 0x72,
-//     0x73, 0x81, 0x21, 0x00, 0x19, 0xBF, 0x44, 0x09, 0x69, 0x84, 0xCD, 0xFE, 0x85, 0x41, 0xBA, 0xC1,
-//     0x67, 0xDC, 0x3B, 0x96, 0xC8, 0x50, 0x86, 0xAA, 0x30, 0xB6, 0xB6, 0xCB, 0x0C, 0x5C, 0x38, 0xAD,
-//     0x70, 0x31, 0x66, 0xE1,
-// ];
+// use serde_json::json;
 
 const WELL_FORMED_PUBKEY: &[u8] = &[
     0x19, 0xBF, 0x44, 0x09, 0x69, 0x84, 0xCD, 0xFE, 0x85, 0x41, 0xBA, 0xC1, 0x67, 0xDC, 0x3B, 0x96,
@@ -80,11 +72,22 @@ async fn test_well_known_endpoint() {
 //     use ruma::serde::Base64;
 //     use std::collections::BTreeMap;
 
+//     // Generate a valid signature for the request using ruma
+//     let request_method = "GET";
+//     let request_uri = "/_matrix/federation/v1/query/profile";
+//     let origin_name = "example.org";
+//     let destination_name = "example.com";
+
 //     // Install crypto provider for signature generation
 //     install_crypto_provider();
 
 //     // Create a keypair for signing requests
-//     let keypair = Ed25519KeyPair::from_der(WELL_FORMED_DOC, "".to_owned()).unwrap();
+//     let keypair = Ed25519KeyPair::from_der(
+//         &Ed25519KeyPair::generate().unwrap(),
+//         "".to_owned(),
+//     )
+//     .unwrap();
+
 //     let public_key = keypair.public_key().to_vec();
 //     let key_id = format!("ed25519:{}", keypair.version());
 
@@ -93,10 +96,10 @@ async fn test_well_known_endpoint() {
 
 //     // Set up the mock to expect an authenticated request
 //     let mock = mock_server.mock(|when, then| {
-//         when.method("GET")
-//             .path("/_matrix/federation/v1/query/profile")
-//             .header("Host", "example.com")
-//             .header("X-Forwarded-Host", "example.com");
+//         when.method(request_method)
+//             .path(request_uri);
+//             // .header("Host", destination_name)
+//             // .header("X-Forwarded-Host", destination_name);
 //         then.status(200)
 //             .header("content-type", "application/json")
 //             .body("{\"profile\": {\"displayname\": \"Test User\"}}");
@@ -133,44 +136,63 @@ async fn test_well_known_endpoint() {
 //     // Create a client
 //     let client = reqwest::Client::new();
 
-//     // Generate a valid signature for the request using ruma
-//     let request_method = "GET";
-//     let request_uri = "/_matrix/federation/v1/query/profile";
-//     let origin_name = "example.org";
-//     let destination_name = "example.com";
+//     // Create the JSON object to sign
+//     let mut request_map = BTreeMap::new();
+//     request_map.insert("method".to_string(), CanonicalJsonValue::String(request_method.to_string()));
+//     request_map.insert("uri".to_string(), CanonicalJsonValue::String(request_uri.to_string()));
+//     request_map.insert("origin".to_string(), CanonicalJsonValue::String(origin_name.to_string()));
+//     request_map.insert("destination".to_string(), CanonicalJsonValue::String(destination_name.to_string()));
 
-//     // Create a federation request to sign
-//     let request = ruma::federation::Request {
-//         method: request_method,
-//         uri: request_uri,
-//         origin: origin_name,
-//         destination: destination_name,
-//         content: None, // No content for GET request
-//     };
+//     // Create a canonical JSON object using BTreeMap
+//     let mut canonical_signed_json = CanonicalJsonObject::from(request_map);
 
-//     // Sign the request with our keypair
-//     let auth_header = ruma::federation::create_authorization_header(
-//         origin_name,
-//         &key_id,
-//         &keypair,
-//         &request
-//     );
+//     // Sign the JSON using the keypair
+//     sign_json(origin_name, &keypair, &mut canonical_signed_json).unwrap();
 
-//     // Send the request with the valid signature
-//     let response = client
-//         .get(format!("http://0.0.0.0:9997{}", request_uri))
-//         .header(HOST, destination_name)
-//         .header("X-Forwarded-Host", destination_name)
-//         .header("Authorization", auth_header)
-//         .send()
-//         .await
-//         .unwrap();
+//     // Extract signature from the signed JSON object - access the nested maps properly
+//     let signatures = &canonical_signed_json["signatures"];
+//     if let CanonicalJsonValue::Object(sigs_obj) = signatures {
+//         if let Some(server_sigs) = sigs_obj.get(origin_name) {
+//             if let CanonicalJsonValue::Object(server_obj) = server_sigs {
+//                 if let Some(CanonicalJsonValue::String(sig_value)) = server_obj.get(&key_id) {
+//                     let signature = sig_value.clone();
 
-//     // Verify the response
-//     assert_eq!(response.status(), StatusCode::OK);
-//     let body = response.text().await.unwrap();
-//     assert_eq!(body, "{\"profile\": {\"displayname\": \"Test User\"}}");
+//                     // Create X-Matrix authorization header
+//                     let auth_header = format!(
+//                         "X-Matrix origin=\"{}\",destination=\"{}\",key=\"{}\",sig=\"{}\"",
+//                         origin_name, destination_name, key_id, signature
+//                     );
 
-//     // Verify that the mock was called
-//     mock.assert();
+//                     // Send the request with the valid signature
+//                     let response = client
+//                         .get(format!("http://0.0.0.0:9997{}", request_uri))
+//                         .header(HOST, destination_name)
+//                         .header("X-Forwarded-Host", destination_name)
+//                         .header("Authorization", auth_header.clone())
+//                         .send()
+//                         .await
+//                         .unwrap();
+
+//                     // Get status before consuming the body
+//                     let status = response.status();
+//                     println!("Response status: {}", status);
+
+//                     // Get and print the body
+//                     let body = response.text().await.unwrap();
+//                     println!("Response body: {}", body);
+//                     println!("Authorization header: {}", auth_header);
+
+//                     // Verify the response
+//                     assert_eq!(status, StatusCode::OK);
+//                     // We've already printed the body for debugging
+//                     // assert_eq!(body, "{\"profile\": {\"displayname\": \"Test User\"}}");
+
+//                     // Verify that the mock was called
+//                     mock.assert();
+//                 } else {
+//                     panic!("Could not find signature for key ID");
+//                 }
+//             }
+//         }
+//     }
 // }

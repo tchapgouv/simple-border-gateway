@@ -1,6 +1,6 @@
 use std::future::Future;
 
-use http::header::HOST;
+use http::{header::HOST, StatusCode};
 use httpmock::MockServer;
 use hudsucker::RequestOrResponse;
 use rcgen::{Certificate, CertificateParams, IsCa, KeyPair};
@@ -9,10 +9,23 @@ use tokio::fs;
 
 use crate::{
     config::UpstreamProxyConfig, install_crypto_provider, outbound,
-    tests_util::{
-        get_well_known_endpoint_mock, set_req_authority_for_tests, verify_well_known_response,
-    },
+    util::set_req_scheme_and_authority,
 };
+
+pub(crate) fn get_well_known_endpoint_mock(mock_server: &MockServer) -> httpmock::Mock {
+    mock_server.mock(|when, then| {
+        when.method("GET").path("/.well-known/matrix/server");
+        then.status(200)
+            .header("content-type", "application/json")
+            .body("{\"m.server\": \"example.com:443\"}");
+    })
+}
+
+pub(crate) async fn verify_well_known_response(response: reqwest::Response) {
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.text().await.unwrap();
+    assert_eq!(body, "{\"m.server\": \"example.com:443\"}");
+}
 
 fn generate_self_signed_ca() -> (KeyPair, Certificate) {
     let mut params = CertificateParams::new(vec!["Test Root CA".to_string()]).unwrap();
@@ -75,107 +88,111 @@ async fn create_outbound_proxy_and_client(
 
 static OUTBOUND_PROXY_PORT_BASE: u16 = 9000;
 
-#[tokio::test]
-async fn test_well_known_endpoint() {
-    let temp_dir = tempfile::tempdir().unwrap();
+mod tests {
+    use super::*;
 
-    let mock_server = MockServer::start();
-    let mock_server_host = mock_server.address().to_string();
-
-    let client = create_outbound_proxy_and_client(
-        &temp_dir,
-        OUTBOUND_PROXY_PORT_BASE,
-        Some(mock_server_host),
-        None,
-    )
-    .await;
-
-    let mock = get_well_known_endpoint_mock(&mock_server);
-
-    let response = client
-        .get("https://example.com/.well-known/matrix/server")
-        .header(HOST, "example.com")
-        .send()
-        .await
-        .unwrap();
-    mock.assert();
-
-    verify_well_known_response(response).await;
-}
-
-#[derive(Clone)]
-struct MockHudsuckerHandler {
-    mock_server_host: String,
-}
-
-impl MockHudsuckerHandler {
-    fn new(mock_server_host: String) -> Self {
-        Self { mock_server_host }
+    #[derive(Clone)]
+    struct MockHudsuckerHandler {
+        mock_server_host: String,
     }
-}
-impl hudsucker::HttpHandler for MockHudsuckerHandler {
-    fn handle_request(
-        &mut self,
-        _ctx: &hudsucker::HttpContext,
-        mut _req: http::Request<hudsucker::Body>,
-    ) -> impl Future<Output = RequestOrResponse> + Send {
-        set_req_authority_for_tests(&mut _req, &self.mock_server_host);
-        Box::pin(async { hudsucker::RequestOrResponse::Request(_req) })
+
+    impl MockHudsuckerHandler {
+        fn new(mock_server_host: String) -> Self {
+            Self { mock_server_host }
+        }
     }
-}
+    impl hudsucker::HttpHandler for MockHudsuckerHandler {
+        fn handle_request(
+            &mut self,
+            _ctx: &hudsucker::HttpContext,
+            mut _req: http::Request<hudsucker::Body>,
+        ) -> impl Future<Output = RequestOrResponse> + Send {
+            set_req_scheme_and_authority(&mut _req, "http", &self.mock_server_host);
+            Box::pin(async { hudsucker::RequestOrResponse::Request(_req) })
+        }
+    }
 
-#[tokio::test]
-async fn test_upstream_proxy_support() {
-    let mock_server = MockServer::start();
-    let mock_server_host = mock_server.address().to_string();
+    #[tokio::test]
+    async fn test_well_known_endpoint() {
+        let temp_dir = tempfile::tempdir().unwrap();
 
-    let mock = get_well_known_endpoint_mock(&mock_server);
+        let mock_server = MockServer::start();
+        let mock_server_host = mock_server.address().to_string();
 
-    let (upstream_proxy_keypair, upstream_proxy_ca_cert) = generate_self_signed_ca();
-    let upstream_proxy_ca_pem = upstream_proxy_ca_cert.pem();
+        let client = create_outbound_proxy_and_client(
+            &temp_dir,
+            OUTBOUND_PROXY_PORT_BASE,
+            Some(mock_server_host),
+            None,
+        )
+        .await;
 
-    let ca = hudsucker::certificate_authority::RcgenAuthority::new(
-        upstream_proxy_keypair,
-        upstream_proxy_ca_cert,
-        1_000,
-        crate::util::crypto_provider::default_provider(),
-    );
+        let mock = get_well_known_endpoint_mock(&mock_server);
 
-    let proxy = hudsucker::Proxy::builder()
-        .with_addr("127.0.0.1:3128".parse().unwrap())
-        .with_ca(ca)
-        .with_rustls_client(crate::util::crypto_provider::default_provider())
-        .with_http_handler(MockHudsuckerHandler::new(mock_server_host))
-        .build()
-        .unwrap();
+        let response = client
+            .get("https://example.com/.well-known/matrix/server")
+            .header(HOST, "example.com")
+            .send()
+            .await
+            .unwrap();
+        mock.assert();
 
-    let upstream_proxy = tokio::spawn(async move {
-        proxy.start().await.unwrap();
-    });
+        verify_well_known_response(response).await;
+    }
 
-    let temp_dir = tempfile::tempdir().unwrap();
+    #[tokio::test]
+    async fn test_upstream_proxy_support() {
+        let mock_server = MockServer::start();
+        let mock_server_host = mock_server.address().to_string();
 
-    let client = create_outbound_proxy_and_client(
-        &temp_dir,
-        OUTBOUND_PROXY_PORT_BASE + 1,
-        Some("example.com".to_string()),
-        Some(UpstreamProxyConfig {
-            url: "http://127.0.0.1:3128".to_string(),
-            ca_pem: Some(upstream_proxy_ca_pem),
-        }),
-    )
-    .await;
+        let mock = get_well_known_endpoint_mock(&mock_server);
 
-    let response = client
-        .get("https://example.com/.well-known/matrix/server")
-        .header(HOST, "example.com")
-        .send()
-        .await
-        .unwrap();
+        let (upstream_proxy_keypair, upstream_proxy_ca_cert) = generate_self_signed_ca();
+        let upstream_proxy_ca_pem = upstream_proxy_ca_cert.pem();
 
-    mock.assert();
+        let ca = hudsucker::certificate_authority::RcgenAuthority::new(
+            upstream_proxy_keypair,
+            upstream_proxy_ca_cert,
+            1_000,
+            crate::util::crypto_provider::default_provider(),
+        );
 
-    verify_well_known_response(response).await;
+        let proxy = hudsucker::Proxy::builder()
+            .with_addr("127.0.0.1:3128".parse().unwrap())
+            .with_ca(ca)
+            .with_rustls_client(crate::util::crypto_provider::default_provider())
+            .with_http_handler(MockHudsuckerHandler::new(mock_server_host))
+            .build()
+            .unwrap();
 
-    upstream_proxy.abort();
+        let upstream_proxy = tokio::spawn(async move {
+            proxy.start().await.unwrap();
+        });
+
+        let temp_dir = tempfile::tempdir().unwrap();
+
+        let client = create_outbound_proxy_and_client(
+            &temp_dir,
+            OUTBOUND_PROXY_PORT_BASE + 1,
+            Some("example.com".to_string()),
+            Some(UpstreamProxyConfig {
+                url: "http://127.0.0.1:3128".to_string(),
+                ca_pem: Some(upstream_proxy_ca_pem),
+            }),
+        )
+        .await;
+
+        let response = client
+            .get("https://example.com/.well-known/matrix/server")
+            .header(HOST, "example.com")
+            .send()
+            .await
+            .unwrap();
+
+        mock.assert();
+
+        verify_well_known_response(response).await;
+
+        upstream_proxy.abort();
+    }
 }

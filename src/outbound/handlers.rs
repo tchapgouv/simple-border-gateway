@@ -15,9 +15,8 @@ use crate::{
     util::{
         convert_hudsucker_request_to_reqwest_request,
         convert_reqwest_response_to_hudsucker_response, create_forbidden_response,
-        create_http_client,
+        create_http_client, set_req_scheme_and_authority,
     },
-    tests_util::set_req_authority_for_tests,
 };
 
 static ENDPOINT_PATTERN_RE: std::sync::LazyLock<Regex> =
@@ -129,8 +128,8 @@ impl HttpHandler for LogHandler {
             let uri = req.uri().clone();
             let destination = uri.host().unwrap_or("");
 
-            if let Some(host) = &self._for_tests_only_mock_server_host {
-                set_req_authority_for_tests(&mut req, host);
+            if let Some(mock_server_host) = &self._for_tests_only_mock_server_host {
+                set_req_scheme_and_authority(&mut req, "http", mock_server_host);
             }
 
             let path_and_query = req
