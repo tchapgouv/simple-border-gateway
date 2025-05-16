@@ -62,6 +62,9 @@ WORKDIR /app
 # Copy the code
 COPY ./ /app
 
+ARG VERGEN_GIT_DESCRIBE
+ENV VERGEN_GIT_DESCRIBE=${VERGEN_GIT_DESCRIBE}
+
 # Network access: cargo auditable needs it
 RUN --network=default \
   --mount=type=cache,target=/root/.cargo/registry \
