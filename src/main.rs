@@ -51,34 +51,38 @@ async fn main() {
         public_key_map.insert(hs.server_name, verify_keys);
     }
 
-    let inbound_proxy_task = tokio::spawn(async move {
+    let mut tasks = vec![];
+
+    tasks.push(tokio::spawn(async move {
         inbound::create_proxy(
-            "0.0.0.0:9999",
+            &config.listen_address,
             shutdown_signal(),
             destination_base_urls,
             public_key_map,
             config.allow_all_client_traffic,
         )
         .await;
-    });
+    }));
 
-    let outbound_proxy_task = tokio::spawn(async move {
-        outbound::create_proxy(
-            "0.0.0.0:3128",
-            &config.outbound_proxy.ca_priv_key_path,
-            &config.outbound_proxy.ca_cert_path,
-            allowed_servernames,
-            allowed_federation_domains,
-            allowed_client_domains,
-            config.outbound_proxy.allowed_external_domains_dangerous,
-            shutdown_signal(),
-            config.outbound_proxy.upstream_proxy,
-            None,
-        )
-        .await;
-    });
+    if let Some(outbound_proxy) = config.outbound_proxy {
+        tasks.push(tokio::spawn(async move {
+            outbound::create_proxy(
+                &outbound_proxy.listen_address,
+                &outbound_proxy.ca_priv_key_path,
+                &outbound_proxy.ca_cert_path,
+                allowed_servernames,
+                allowed_federation_domains,
+                allowed_client_domains,
+                outbound_proxy.allowed_external_domains_dangerous,
+                shutdown_signal(),
+                outbound_proxy.upstream_proxy,
+                None,
+            )
+            .await;
+        }));
+    }
 
-    let _ = outbound_proxy_task.await;
-
-    let _ = inbound_proxy_task.await;
+    for task in tasks {
+        let _ = task.await;
+    }
 }

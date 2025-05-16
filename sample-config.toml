@@ -1,6 +1,11 @@
-allow_all_client_traffic = true
+# Commented conf lines are the default values
+
+# listen_adress = "0.0.0.0:8000"
+# allow_all_client_traffic = false
 
 [outbound_proxy]
+# listen_adress = "0.0.0.0:3128"
+
 ca_priv_key_path = "ca.pem"
 ca_cert_path = "ca.crt"
 

@@ -29,7 +29,7 @@ pub(crate) async fn forbidden_handler(
     TypedHeader(XForwardedHost(x_forwarded_host)): TypedHeader<XForwardedHost>,
 ) -> http::Response<Body> {
     warn!("{x_forwarded_host} {method} {uri} : forbidden request");
-    create_forbidden_response("errcode", None)
+    create_forbidden_response("M_FORBIDDEN", None)
 }
 
 pub(crate) async fn forward_handler(
