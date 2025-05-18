@@ -76,6 +76,8 @@ RUN --network=default \
     --target x86_64-unknown-linux-gnu \
     --target aarch64-unknown-linux-gnu
 
+RUN rm -rf /app/src
+
 # Copy the code
 COPY ./ /app
 
