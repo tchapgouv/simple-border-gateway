@@ -21,7 +21,6 @@ env:
 jobs:
   compute-version:
     name: Compute version using git describe
-    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
 
     permissions:
@@ -46,7 +45,6 @@ jobs:
 
   build-image:
     name: Build and push Docker image
-    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
 
     outputs:
