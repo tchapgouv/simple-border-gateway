@@ -1,4 +1,4 @@
-# syntax = docker/dockerfile:1.7.1
+# syntax=docker/dockerfile:1-labs
 
 # Builds a minimal image with the binary only. It is multi-arch capable,
 # cross-building to aarch64 and x86_64. When cross-compiling, Docker sets two
@@ -62,8 +62,8 @@ WORKDIR /app
 ARG VERGEN_GIT_DESCRIBE
 ENV VERGEN_GIT_DESCRIBE=${VERGEN_GIT_DESCRIBE}
 
+# Build dependencies in a first layer for caching purpose
 RUN mkdir -p /app/src
-
 RUN echo "fn main() {}" > /app/src/main.rs
 
 COPY ["Cargo.toml", "Cargo.lock",  "/app"]
@@ -77,10 +77,10 @@ RUN --network=default \
     --target aarch64-unknown-linux-gnu
 
 # Copy the code
-COPY ./ /app
+COPY --exclude=.* ./ /app
 
 # Network access: cargo auditable needs it
-RUN --network=default \
+RUN --network=none \
   cargo auditable build \
     --locked \
     --release \
