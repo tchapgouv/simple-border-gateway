@@ -14,10 +14,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CARGO_TERM_COLOR: always
-  CARGO_NET_GIT_FETCH_WITH_CLI: "true"
-  SCCACHE_GHA_ENABLED: "true"
-  RUSTC_WRAPPER: "sccache"
   IMAGE: ghcr.io/tchapgouv/simple-border-gateway
   BUILDCACHE: ghcr.io/tchapgouv/simple-border-gateway/buildcache
   DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index

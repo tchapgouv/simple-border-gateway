@@ -59,16 +59,28 @@ ENV \
 # Set the working directory
 WORKDIR /app
 
-# Copy the code
-COPY ./ /app
-
 ARG VERGEN_GIT_DESCRIBE
 ENV VERGEN_GIT_DESCRIBE=${VERGEN_GIT_DESCRIBE}
 
+RUN mkdir -p /app/src
+
+RUN echo "fn main() {}" > /app/src/main.rs
+
+COPY ["Cargo.toml", "Cargo.lock",  "./"]
+
 # Network access: cargo auditable needs it
 RUN --network=default \
-  --mount=type=cache,target=/root/.cargo/registry \
-  --mount=type=cache,target=/app/target \
+  cargo auditable build \
+    --locked \
+    --release \
+    --target x86_64-unknown-linux-gnu \
+    --target aarch64-unknown-linux-gnu
+
+# Copy the code
+COPY ./ /app
+
+# Network access: cargo auditable needs it
+RUN --network=default \
   cargo auditable build \
     --locked \
     --release \
