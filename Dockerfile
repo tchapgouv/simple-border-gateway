@@ -66,7 +66,7 @@ RUN mkdir -p /app/src
 
 RUN echo "fn main() {}" > /app/src/main.rs
 
-COPY ["Cargo.toml", "Cargo.lock",  "./"]
+COPY ["Cargo.toml", "Cargo.lock",  "/app"]
 
 # Network access: cargo auditable needs it
 RUN --network=default \
@@ -76,7 +76,7 @@ RUN --network=default \
     --target x86_64-unknown-linux-gnu \
     --target aarch64-unknown-linux-gnu
 
-RUN rm -rf /app/src
+RUN rm -rf /app/src /app/Cargo.toml /app/Cargo.lock
 
 # Copy the code
 COPY ./ /app
