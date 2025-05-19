@@ -5,6 +5,8 @@
 # implicit BUILDARG: BUILDPLATFORM being the host platform and TARGETPLATFORM
 # being the platform being built.
 
+# The Debian version and version name must be in sync
+ARG DEBIAN_VERSION=12
 ARG DEBIAN_VERSION_NAME=bookworm
 ARG RUSTC_VERSION=1.86.0
 ARG CARGO_AUDITABLE_VERSION=0.6.6
@@ -92,12 +94,10 @@ RUN --network=none \
 ###################
 ## Runtime stage ##
 ###################
-FROM docker.io/library/debian:${DEBIAN_VERSION_NAME}-slim
+FROM gcr.io/distroless/cc-debian${DEBIAN_VERSION}:nonroot
 
 ARG TARGETARCH
 COPY --from=builder /usr/local/bin/simple-border-gateway-${TARGETARCH} /usr/local/bin/simple-border-gateway
-
-RUN mkdir -p /data
 
 WORKDIR /data
 
