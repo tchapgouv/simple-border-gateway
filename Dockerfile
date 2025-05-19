@@ -79,7 +79,7 @@ RUN --network=default \
     --target aarch64-unknown-linux-gnu
 
 # Copy the code
-COPY --exclude=.* ./ /app
+COPY --exclude=.* --exclude=target ./ /app
 
 # Network access: cargo auditable needs it
 RUN --network=none \
@@ -94,6 +94,7 @@ RUN --network=none \
 ###################
 ## Runtime stage ##
 ###################
+# FROM debian:${DEBIAN_VERSION}-slim
 FROM gcr.io/distroless/cc-debian${DEBIAN_VERSION}:nonroot
 
 ARG TARGETARCH
