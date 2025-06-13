@@ -94,8 +94,8 @@ RUN --network=none \
 ###################
 ## Runtime stage ##
 ###################
-# FROM debian:${DEBIAN_VERSION}-slim
-FROM gcr.io/distroless/cc-debian${DEBIAN_VERSION}:nonroot
+FROM debian:${DEBIAN_VERSION}-slim
+#FROM gcr.io/distroless/cc-debian${DEBIAN_VERSION}:nonroot
 
 ARG TARGETARCH
 COPY --from=builder /usr/local/bin/simple-border-gateway-${TARGETARCH} /usr/local/bin/simple-border-gateway
