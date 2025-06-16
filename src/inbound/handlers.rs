@@ -40,6 +40,7 @@ pub(crate) async fn forward_handler(
     headers: HeaderMap,
     request: Request<Body>,
 ) -> http::Response<Body> {
+    info!("{x_forwarded_host} {method} {uri} : forward request");
     forward_incoming_request(
         state,
         method,

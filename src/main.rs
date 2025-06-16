@@ -5,26 +5,35 @@ mod config;
 mod matrix_spec;
 mod util;
 
+use tracing::{debug, info};
+
 use std::{collections::BTreeMap, fs};
 
 use config::BorderGatewayConfig;
 use ruma::{serde::Base64, signatures::PublicKeyMap};
-use tracing::subscriber::NoSubscriber;
 use util::{install_crypto_provider, shutdown_signal};
 
 #[tokio::main]
 async fn main() {
-    env_logger::builder()
+    println!("Starting simple-border-gateway");
+
+    env_logger::Builder::new()
         .filter_level(log::LevelFilter::Info)
+        .format_timestamp_millis()
+        .parse_default_env()
         .init();
 
-    tracing::subscriber::set_global_default(NoSubscriber::new()).unwrap();
+    debug!("Logging initialized");
 
     let config_toml_str = fs::read_to_string("config.toml").expect("Failed to read config file");
     let config: BorderGatewayConfig =
         toml::from_str(&config_toml_str).expect("Failed to deserialize config file");
 
+    debug!("Config file loaded");
+
     install_crypto_provider();
+
+    debug!("Crypto provider installed");
 
     let mut destination_base_urls: BTreeMap<String, String> = BTreeMap::new();
     for hs in config.internal_homeservers {
@@ -51,6 +60,8 @@ async fn main() {
         public_key_map.insert(hs.server_name, verify_keys);
     }
 
+    debug!("Configuration initialized");
+
     let mut tasks = vec![];
 
     tasks.push(tokio::spawn(async move {
@@ -63,6 +74,8 @@ async fn main() {
         )
         .await;
     }));
+
+    info!("inbound_proxy initialized");
 
     if let Some(outbound_proxy) = config.outbound_proxy {
         tasks.push(tokio::spawn(async move {
@@ -80,6 +93,7 @@ async fn main() {
             )
             .await;
         }));
+        info!("outbound_proxy initialized");
     }
 
     for task in tasks {

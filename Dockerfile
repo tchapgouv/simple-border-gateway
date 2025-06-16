@@ -8,7 +8,7 @@
 # The Debian version and version name must be in sync
 ARG DEBIAN_VERSION=12
 ARG DEBIAN_VERSION_NAME=bookworm
-ARG RUSTC_VERSION=1.86.0
+ARG RUSTC_VERSION=1.87.0
 ARG CARGO_AUDITABLE_VERSION=0.6.6
 
 ########################################
@@ -70,7 +70,7 @@ RUN echo "fn main() {}" > /app/src/main.rs
 
 COPY ["Cargo.toml", "Cargo.lock",  "/app"]
 
-# Network access: cargo auditable needs it
+# Network access: to fetch dependencies
 RUN --network=default \
   cargo auditable build \
     --locked \
@@ -81,7 +81,6 @@ RUN --network=default \
 # Copy the code
 COPY --exclude=.* --exclude=target ./ /app
 
-# Network access: cargo auditable needs it
 RUN --network=none \
   cargo auditable build \
     --locked \
