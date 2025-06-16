@@ -16,15 +16,6 @@ pub(crate) struct Endpoint {
     pub(crate) auth_type: AuthType,
 }
 
-pub(crate) const SERVER_WELLKNOWN_ENDPOINT: Endpoint = Endpoint {
-    // 2. Server discovery
-
-    // 2.1 Resolving server names
-    path: "/.well-known/matrix/server",
-    method: Some(Method::GET),
-    auth_type: AuthType::Unauthenticated,
-};
-
 pub(crate) const FEDERATION_ENDPOINTS: [Endpoint; 36] = [
     // 2. Server discovery
 
@@ -232,6 +223,15 @@ pub(crate) const FEDERATION_ENDPOINTS: [Endpoint; 36] = [
     },
 ];
 
+pub(crate) const SERVER_WELLKNOWN_ENDPOINT: Endpoint = Endpoint {
+    // 2. Server discovery
+
+    // 2.1 Resolving server names
+    path: "/.well-known/matrix/server",
+    method: Some(Method::GET),
+    auth_type: AuthType::Unauthenticated,
+};
+
 pub(crate) const CLIENT_WELLKNOWN_ENDPOINT: Endpoint = Endpoint {
     path: "/.well-known/matrix/client",
     method: Some(Method::GET),
@@ -246,5 +246,3 @@ pub(crate) const MEDIA_CLIENT_LEGACY_ENDPOINTS: [Endpoint; 1] = [
         auth_type: AuthType::Unauthenticated,
     },
 ];
-
-pub(crate) const CLIENT_GLOBAL_ENDPOINT: &str = "/_matrix/client/{*path}";

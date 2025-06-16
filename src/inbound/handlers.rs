@@ -6,7 +6,7 @@ use axum::{
     extract::State,
     http::{HeaderMap, Method, Request, Uri},
 };
-use axum_extra::{headers::Authorization, TypedHeader};
+use axum_extra::TypedHeader;
 use http::StatusCode;
 use log::{info, warn};
 use regex::Regex;
@@ -57,10 +57,22 @@ pub(crate) async fn verify_signature_handler(
     method: Method,
     uri: Uri,
     TypedHeader(XForwardedHost(x_forwarded_host)): TypedHeader<XForwardedHost>,
-    TypedHeader(Authorization(x_matrix)): TypedHeader<Authorization<XMatrix>>,
     headers: HeaderMap,
     body: String,
 ) -> http::Response<Body> {
+    let Some(auth_header) = headers.get("Authorization") else {
+        warn!("{x_forwarded_host} {method} {uri} : no authorization header, forbid request");
+        return create_empty_response(StatusCode::FORBIDDEN);
+    };
+
+    let x_matrix = match XMatrix::parse(auth_header.to_str().unwrap_or_default()) {
+        Ok(x_matrix) => x_matrix,
+        Err(e) => {
+            warn!("{x_forwarded_host} {method} {uri} : invalid X-Matrix auth header, forbid request, {e}");
+            return create_empty_response(StatusCode::FORBIDDEN);
+        }
+    };
+
     let origin = x_matrix.origin.clone();
     if !state.public_key_map.contains_key(origin.as_str()) {
         warn!("{x_forwarded_host} {method} {uri} : unauthorized server {origin}, forbid request");
