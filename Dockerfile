@@ -27,9 +27,6 @@ RUN --network=default \
   --toolchain "${RUSTC_VERSION}" \
   x86_64-unknown-linux-gnu
 
-# Set the working directory
-WORKDIR /app
-
 ARG VERGEN_GIT_DESCRIBE
 ENV VERGEN_GIT_DESCRIBE=${VERGEN_GIT_DESCRIBE}
 
@@ -41,7 +38,9 @@ COPY ["Cargo.toml", "Cargo.lock",  "/app"]
 
 # Network access: to fetch dependencies
 RUN --network=default \
-  cargo auditable build \
+    --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/app/target \
+  cd /app && cargo auditable build \
     --locked \
     --release
 
@@ -49,7 +48,9 @@ RUN --network=default \
 COPY --exclude=.* --exclude=target ./ /app
 
 RUN --network=none \
-  cargo auditable build \
+    --mount=type=cache,target=/root/.cargo/registry \
+    --mount=type=cache,target=/app/target \
+  cd /app && cargo auditable build \
     --locked \
     --release \
     --target x86_64-unknown-linux-gnu \
