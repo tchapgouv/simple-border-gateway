@@ -29,8 +29,6 @@ pub(crate) struct BorderGatewayConfig {
     pub(crate) listen_address: String,
     pub(crate) internal_homeservers: Vec<InternalHomeserverConfig>,
     pub(crate) external_homeservers: Vec<ExternalHomeserverConfig>,
-    #[serde(default)]
-    pub(crate) allow_all_client_traffic: bool,
     pub(crate) outbound_proxy: Option<OutboundProxyConfig>,
 }
 

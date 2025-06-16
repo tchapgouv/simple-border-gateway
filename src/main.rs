@@ -70,7 +70,6 @@ async fn main() {
             shutdown_signal(),
             destination_base_urls,
             public_key_map,
-            config.allow_all_client_traffic,
         )
         .await;
     }));

@@ -20,7 +20,6 @@ pub(crate) async fn create_proxy<F>(
     shutdown_signal: F,
     destination_base_urls: BTreeMap<String, String>,
     public_key_map: BTreeMap<String, BTreeMap<String, Base64>>,
-    allow_all_client_traffic: bool,
 ) where
     F: Future<Output = ()> + Send + 'static,
 {
@@ -36,7 +35,7 @@ pub(crate) async fn create_proxy<F>(
             .unwrap();
     axum::serve(
         listener,
-        create_router(state, allow_all_client_traffic).into_make_service(),
+        create_router(state).into_make_service(),
     )
     .with_graceful_shutdown(shutdown_signal)
     .await

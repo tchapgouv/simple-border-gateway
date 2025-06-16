@@ -45,7 +45,6 @@ async fn test_well_known_endpoint() {
             shutdown_signal(),
             destination_base_urls,
             public_key_map,
-            false,
         )
         .await;
     });

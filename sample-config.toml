@@ -1,7 +1,6 @@
 # Commented conf lines are the default values
 
 # listen_adress = "0.0.0.0:8000"
-# allow_all_client_traffic = false
 
 [outbound_proxy]
 # listen_adress = "0.0.0.0:3128"

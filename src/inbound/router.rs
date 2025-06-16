@@ -2,32 +2,25 @@ use std::convert::Infallible;
 
 use axum::{
     handler::Handler,
-    routing::{self, any, MethodRouter},
+    routing::{self, MethodRouter},
     Router,
 };
 use http::Method;
 use tower_http::trace;
 use tracing::Level;
 
-use crate::matrix_spec::{
-    AuthType, CLIENT_GLOBAL_ENDPOINT, FEDERATION_ENDPOINTS, SERVER_WELLKNOWN_ENDPOINT,
-};
+use crate::matrix_spec::{AuthType, FEDERATION_ENDPOINTS};
 
 use super::{
     handlers::{forbidden_handler, forward_handler, verify_signature_handler},
     GatewayState,
 };
 
-pub(crate) fn create_router(state: GatewayState, allow_all_client_traffic: bool) -> Router {
+pub(crate) fn create_router(state: GatewayState) -> Router {
     let mut r = Router::new().layer(
         trace::TraceLayer::new_for_http()
             .make_span_with(trace::DefaultMakeSpan::new().level(Level::TRACE))
             .on_response(trace::DefaultOnResponse::new().level(Level::TRACE)),
-    );
-
-    r = r.route(
-        SERVER_WELLKNOWN_ENDPOINT.path,
-        get_method_router(&SERVER_WELLKNOWN_ENDPOINT.method, forward_handler),
     );
 
     for endpoint in FEDERATION_ENDPOINTS {
@@ -45,10 +38,6 @@ pub(crate) fn create_router(state: GatewayState, allow_all_client_traffic: bool)
             //     get_method_router(endpoint.method, forbidden_handler),
             // ),
         };
-    }
-
-    if allow_all_client_traffic {
-        r = r.route(CLIENT_GLOBAL_ENDPOINT, any(forward_handler));
     }
 
     r = r.fallback(forbidden_handler);

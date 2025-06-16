@@ -144,6 +144,7 @@ impl HttpHandler for LogHandler {
                 return self.forward_outgoing_request(req).await.unwrap();
             }
 
+            // Servers need to be able to discover other servers via well-known endpoints
             if is_valid_request_for_endpoint(&req, &REGEX_SERVER_WELLKNOWN_ENDPOINT) {
                 if self.allowed_servernames.contains(destination) {
                     info!(
@@ -158,20 +159,6 @@ impl HttpHandler for LogHandler {
                 }
             }
 
-            if is_valid_request_for_endpoint(&req, &REGEX_CLIENT_WELLKNOWN_ENDPOINT) {
-                if self.allowed_servernames.contains(destination) {
-                    info!(
-                        "{destination} {method} {path_and_query} : valid and allowed client well-known request, forward",
-                    );
-                    return self.forward_outgoing_request(req).await.unwrap();
-                } else {
-                    warn!(
-                        "{destination} {method} {path_and_query} : not an allowed well-known client request, block",
-                    );
-                    return create_forbidden_response("M_FORBIDDEN", None).into();
-                }
-            }
-
             if is_valid_request(&req, &REGEX_FEDERATION_ENDPOINTS) {
                 if self.allowed_federation_domains.contains(destination) {
                     info!(
@@ -181,6 +168,21 @@ impl HttpHandler for LogHandler {
                 } else {
                     warn!(
                         "{destination} {method} {path_and_query} : not an allowed federation request, block",
+                    );
+                    return create_forbidden_response("M_FORBIDDEN", None).into();
+                }
+            }
+
+            // Servers need to be able to discover the client API of other servers too because of the legacy media API endpoints
+            if is_valid_request_for_endpoint(&req, &REGEX_CLIENT_WELLKNOWN_ENDPOINT) {
+                if self.allowed_servernames.contains(destination) {
+                    info!(
+                        "{destination} {method} {path_and_query} : valid and allowed client well-known request, forward",
+                    );
+                    return self.forward_outgoing_request(req).await.unwrap();
+                } else {
+                    warn!(
+                        "{destination} {method} {path_and_query} : not an allowed well-known client request, block",
                     );
                     return create_forbidden_response("M_FORBIDDEN", None).into();
                 }
