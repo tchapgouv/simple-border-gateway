@@ -103,37 +103,17 @@ pub(crate) async fn convert_hudsucker_request_to_reqwest_request(
     req: http::Request<hudsucker::Body>,
     http_client: &reqwest::Client,
 ) -> Result<reqwest::Request, Box<dyn core::error::Error>> {
-    // Extract URI components
     let uri = req.uri();
     let method = req.method().clone();
 
-    // Build the URL
-    let url_str = if uri.scheme().is_none() || uri.authority().is_none() {
-        // If scheme or authority is missing, assume it's a relative URL
-        format!(
-            "{}://{}{}",
-            uri.scheme().unwrap_or(&http::uri::Scheme::HTTP),
-            uri.authority()
-                .unwrap_or(&http::uri::Authority::from_static("localhost")),
-            uri.path_and_query().map(|p| p.as_str()).unwrap_or("")
-        )
-    } else {
-        // Full URL is available
-        uri.to_string()
-    };
+    let mut request_builder = http_client.request(method, uri.to_string().parse::<reqwest::Url>()?);
 
-    // Create reqwest request builder
-    let mut request_builder = http_client.request(method, url_str.parse::<reqwest::Url>()?);
-
-    // Copy headers
     for (name, value) in req.headers() {
         request_builder = request_builder.header(name, value.clone());
     }
 
-    // Handle body using streaming approach
     let (_, body) = req.into_parts();
 
-    // Convert hudsucker Body to reqwest streaming body
     if !body.is_end_stream() {
         let stream = futures::StreamExt::map(body.into_data_stream(), |result| {
             result.map_err(std::io::Error::other)
@@ -148,17 +128,14 @@ pub(crate) async fn convert_hudsucker_request_to_reqwest_request(
 pub(crate) async fn convert_reqwest_response_to_hudsucker_response(
     response: reqwest::Response,
 ) -> Result<http::Response<hudsucker::Body>, Box<dyn core::error::Error>> {
-    // Build the response
     let status = response.status();
     let mut response_builder = http::Response::builder().status(status);
 
-    // Copy headers
     let headers = response_builder.headers_mut().unwrap();
     for (name, value) in response.headers() {
         headers.insert(name, value.clone());
     }
 
-    // Handle the response body
     let body = if response.content_length().is_none_or(|length| length > 0) {
         hudsucker::Body::from_stream(futures::StreamExt::map(response.bytes_stream(), |result| {
             result.map_err(std::io::Error::other)
