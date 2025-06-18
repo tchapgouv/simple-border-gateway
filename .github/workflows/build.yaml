@@ -15,7 +15,6 @@ concurrency:
 
 env:
   IMAGE: ghcr.io/tchapgouv/simple-border-gateway
-  BUILDCACHE: ghcr.io/tchapgouv/simple-border-gateway/buildcache
   DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
 
 jobs:
@@ -107,8 +106,6 @@ jobs:
             release
           set: |
             base.output=type=image,push=true
-            base.cache-from=type=registry,ref=${{ env.BUILDCACHE }}:buildcache
-            base.cache-to=type=registry,ref=${{ env.BUILDCACHE }}:buildcache,mode=max
 
       - name: Transform bake output
         # This transforms the ouput to an object which looks like this:

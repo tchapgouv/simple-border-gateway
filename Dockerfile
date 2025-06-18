@@ -9,48 +9,32 @@ ARG CARGO_AUDITABLE_VERSION=0.6.6
 ########################################
 ## Build stage that builds the binary ##
 ########################################
-FROM --platform=${BUILDPLATFORM} docker.io/library/rust:${RUSTC_VERSION}-${DEBIAN_VERSION_NAME} AS builder
+FROM docker.io/library/rust:${RUSTC_VERSION}-${DEBIAN_VERSION_NAME} AS builder
 
 ARG CARGO_AUDITABLE_VERSION
 ARG RUSTC_VERSION
 
+WORKDIR /root
+
 # Install pinned versions of cargo-auditable
 # Network access: to fetch dependencies
 RUN --network=default \
+    --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/root/target \
   cargo install --locked \
   cargo-auditable@=${CARGO_AUDITABLE_VERSION}
-
-# Install all cross-compilation targets
-# Network access: to download the targets
-RUN --network=default \
-  rustup target add  \
-  --toolchain "${RUSTC_VERSION}" \
-  x86_64-unknown-linux-gnu
 
 ARG VERGEN_GIT_DESCRIBE
 ENV VERGEN_GIT_DESCRIBE=${VERGEN_GIT_DESCRIBE}
 
-# Build dependencies in a first layer for caching purpose
-RUN mkdir -p /app/src
-RUN echo "fn main() {}" > /app/src/main.rs
-
-COPY ["Cargo.toml", "Cargo.lock",  "/app"]
+# Copy the code
+COPY . .
 
 # Network access: to fetch dependencies
 RUN --network=default \
-    --mount=type=cache,target=/root/.cargo/registry \
-    --mount=type=cache,target=/app/target \
-  cd /app && cargo auditable build \
-    --locked \
-    --release
-
-# Copy the code
-COPY --exclude=.* --exclude=target ./ /app
-
-RUN --network=none \
-    --mount=type=cache,target=/root/.cargo/registry \
-    --mount=type=cache,target=/app/target \
-  cd /app && cargo auditable build \
+    --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/root/target \
+  cargo auditable build \
     --locked \
     --release \
     --target x86_64-unknown-linux-gnu \
