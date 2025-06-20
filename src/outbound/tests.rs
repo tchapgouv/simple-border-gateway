@@ -157,7 +157,7 @@ mod tests {
             crate::util::crypto_provider::default_provider(),
         );
 
-        let proxy = hudsucker::Proxy::builder()
+        let upstream_proxy = hudsucker::Proxy::builder()
             .with_addr("127.0.0.1:3128".parse().unwrap())
             .with_ca(ca)
             .with_rustls_client(crate::util::crypto_provider::default_provider())
@@ -165,8 +165,8 @@ mod tests {
             .build()
             .unwrap();
 
-        let upstream_proxy = tokio::spawn(async move {
-            proxy.start().await.unwrap();
+        let upstream_proxy_handle = tokio::spawn(async move {
+            upstream_proxy.start().await.unwrap();
         });
 
         let temp_dir = tempfile::tempdir().unwrap();
@@ -193,6 +193,6 @@ mod tests {
 
         verify_well_known_response(response).await;
 
-        upstream_proxy.abort();
+        upstream_proxy_handle.abort();
     }
 }
