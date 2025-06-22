@@ -15,7 +15,7 @@ pub(crate) struct GatewayState {
     public_key_map: BTreeMap<String, BTreeMap<String, Base64>>,
 }
 
-pub(crate) async fn create_proxy<F>(
+pub async fn create_proxy<F>(
     listening_addr: &str,
     shutdown_signal: F,
     destination_base_urls: BTreeMap<String, String>,
@@ -38,6 +38,3 @@ pub(crate) async fn create_proxy<F>(
         .await
         .unwrap();
 }
-
-#[cfg(test)]
-mod tests;

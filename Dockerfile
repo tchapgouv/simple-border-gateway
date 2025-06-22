@@ -14,13 +14,13 @@ FROM docker.io/library/rust:${RUSTC_VERSION}-${DEBIAN_VERSION_NAME} AS builder
 ARG CARGO_AUDITABLE_VERSION
 ARG RUSTC_VERSION
 
-WORKDIR /root
+WORKDIR /app
 
 # Install pinned versions of cargo-auditable
 # Network access: to fetch dependencies
 RUN --network=default \
     --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/root/target \
+    --mount=type=cache,target=/app/target \
   cargo install --locked \
   cargo-auditable@=${CARGO_AUDITABLE_VERSION}
 
@@ -33,7 +33,7 @@ COPY . .
 # Network access: to fetch dependencies
 RUN --network=default \
     --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/root/target \
+    --mount=type=cache,target=/app/target \
   cargo auditable build \
     --locked \
     --release \

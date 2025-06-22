@@ -7,9 +7,9 @@ use serde_json::{json, Value};
 use crate::config::UpstreamProxyConfig;
 
 #[cfg(feature = "aws_lc_rs")]
-pub(crate) use hudsucker::rustls::crypto::aws_lc_rs as crypto_provider;
+pub use hudsucker::rustls::crypto::aws_lc_rs as crypto_provider;
 #[cfg(feature = "ring")]
-pub(crate) use hudsucker::rustls::crypto::ring as crypto_provider;
+pub use hudsucker::rustls::crypto::ring as crypto_provider;
 
 pub(crate) fn create_forbidden_json(errcode: &str, error_msg: Option<&str>) -> Value {
     if let Some(error_msg_val) = error_msg {
@@ -89,11 +89,11 @@ pub(crate) fn create_http_client(
     builder.build().unwrap()
 }
 
-pub(crate) fn install_crypto_provider() {
+pub fn install_crypto_provider() {
     let _ = crypto_provider::default_provider().install_default();
 }
 
-pub(crate) async fn shutdown_signal() {
+pub async fn shutdown_signal() {
     tokio::signal::ctrl_c()
         .await
         .expect("Failed to install CTRL+C signal handler");
@@ -149,11 +149,7 @@ pub(crate) async fn convert_reqwest_response_to_hudsucker_response(
         .map_err(|e| Box::new(e) as Box<dyn core::error::Error>)
 }
 
-pub(crate) fn set_req_scheme_and_authority<B>(
-    req: &mut http::Request<B>,
-    scheme: &str,
-    authority: &str,
-) {
+pub fn set_req_scheme_and_authority<B>(req: &mut http::Request<B>, scheme: &str, authority: &str) {
     let parts = req.uri().clone().into_parts();
     let mut builder = http::uri::Builder::new()
         .scheme(scheme)

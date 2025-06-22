@@ -21,7 +21,7 @@ use crate::config::UpstreamProxyConfig;
 mod handlers;
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn create_proxy<F>(
+pub async fn create_proxy<F>(
     listening_addr: &str,
     ca_priv_key_path: &str,
     ca_cert_path: &str,
@@ -86,6 +86,3 @@ pub(crate) fn get_proxy_builder(
         .with_ca(ca)
         .with_rustls_client(crate::util::crypto_provider::default_provider())
 }
-
-#[cfg(test)]
-mod tests;

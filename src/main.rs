@@ -1,17 +1,13 @@
-mod inbound;
-mod outbound;
-
-mod config;
-mod matrix_spec;
-mod util;
-
 use tracing::{debug, info};
 
 use std::{collections::BTreeMap, fs};
 
-use config::BorderGatewayConfig;
 use ruma::{serde::Base64, signatures::PublicKeyMap};
-use util::{install_crypto_provider, shutdown_signal};
+use simple_border_gateway::config::BorderGatewayConfig;
+use simple_border_gateway::{
+    inbound, outbound,
+    util::{install_crypto_provider, shutdown_signal},
+};
 
 #[tokio::main]
 async fn main() {

@@ -124,7 +124,9 @@ impl HttpHandler for LogHandler {
         mut req: http::Request<Body>,
     ) -> RequestOrResponse {
         let method = req.method().clone();
-        if method != Method::CONNECT {
+        if method == Method::CONNECT {
+            req.into()
+        } else {
             let uri = req.uri().clone();
             let destination = uri.host().unwrap_or("");
 
@@ -209,8 +211,6 @@ impl HttpHandler for LogHandler {
                 .body(Body::empty())
                 .unwrap()
                 .into()
-        } else {
-            req.into()
         }
     }
 

@@ -7,9 +7,10 @@ use rcgen::{Certificate, CertificateParams, IsCa, KeyPair};
 use tempfile::TempDir;
 use tokio::fs;
 
-use crate::{
-    config::UpstreamProxyConfig, install_crypto_provider, outbound,
-    util::set_req_scheme_and_authority,
+use simple_border_gateway::{
+    config::UpstreamProxyConfig,
+    outbound,
+    util::{install_crypto_provider, set_req_scheme_and_authority},
 };
 
 pub(crate) fn get_well_known_endpoint_mock(mock_server: &MockServer) -> httpmock::Mock {
@@ -67,7 +68,7 @@ async fn create_outbound_proxy_and_client(
             allowed_federation_domains,
             allowed_client_domains,
             allowed_external_domains,
-            crate::util::shutdown_signal(),
+            simple_border_gateway::util::shutdown_signal(),
             upstream_proxy_config,
             mock_server_host,
         )
@@ -154,13 +155,13 @@ mod tests {
             upstream_proxy_keypair,
             upstream_proxy_ca_cert,
             1_000,
-            crate::util::crypto_provider::default_provider(),
+            simple_border_gateway::util::crypto_provider::default_provider(),
         );
 
         let upstream_proxy = hudsucker::Proxy::builder()
             .with_addr("127.0.0.1:3128".parse().unwrap())
             .with_ca(ca)
-            .with_rustls_client(crate::util::crypto_provider::default_provider())
+            .with_rustls_client(simple_border_gateway::util::crypto_provider::default_provider())
             .with_http_handler(MockHudsuckerHandler::new(mock_server_host))
             .build()
             .unwrap();

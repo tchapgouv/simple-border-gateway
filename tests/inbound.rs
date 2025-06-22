@@ -1,9 +1,8 @@
-#[cfg(test)]
-use crate::inbound;
-use crate::util::shutdown_signal;
 use http::header::HOST;
 use http::StatusCode;
 use ruma::serde::Base64;
+use simple_border_gateway::inbound;
+use simple_border_gateway::util::shutdown_signal;
 // use ruma::signatures::{sign_json, Ed25519KeyPair};
 // use ruma::{CanonicalJsonObject, CanonicalJsonValue};
 use std::collections::BTreeMap;
