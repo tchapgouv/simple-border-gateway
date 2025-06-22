@@ -56,7 +56,7 @@ toml = "0.8"
 
 [dev-dependencies]
 axum-test = "17"
-httpmock = "0.8.0-alpha.1"
+httpmock = "0.7"
 tempfile = "3"
 async_once = "0.2"
 
