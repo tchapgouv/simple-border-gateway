@@ -67,7 +67,8 @@ async fn main() {
             destination_base_urls,
             public_key_map,
         )
-        .await;
+        .await
+        .expect("Failed to create inbound proxy");
     }));
 
     info!("inbound_proxy initialized");
@@ -86,7 +87,8 @@ async fn main() {
                 outbound_proxy.upstream_proxy,
                 None,
             )
-            .await;
+            .await
+            .expect("Failed to create outbound proxy");
         }));
         info!("outbound_proxy initialized");
     }

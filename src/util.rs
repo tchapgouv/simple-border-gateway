@@ -76,17 +76,21 @@ impl Header for XForwardedHost {
 
 pub(crate) fn create_http_client(
     upstream_proxy_config: Option<UpstreamProxyConfig>,
-) -> reqwest::Client {
+) -> Result<reqwest::Client, reqwest::Error> {
     install_crypto_provider();
     let mut builder = reqwest::Client::builder().use_rustls_tls();
     if let Some(upstream_proxy_config) = upstream_proxy_config {
-        builder = builder.proxy(reqwest::Proxy::all(upstream_proxy_config.url).unwrap());
+        let mut proxy_config = reqwest::Proxy::all(upstream_proxy_config.url)?;
+        if let Some(auth) = upstream_proxy_config.auth {
+            proxy_config = proxy_config.basic_auth(auth.username.as_str(), auth.password.as_str());
+        }
+        builder = builder.proxy(proxy_config);
         if let Some(ca_pem) = upstream_proxy_config.ca_pem {
-            builder = builder
-                .add_root_certificate(reqwest::Certificate::from_pem(ca_pem.as_bytes()).unwrap());
+            builder =
+                builder.add_root_certificate(reqwest::Certificate::from_pem(ca_pem.as_bytes())?);
         }
     }
-    builder.build().unwrap()
+    builder.build()
 }
 
 pub fn install_crypto_provider() {

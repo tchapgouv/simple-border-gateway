@@ -20,11 +20,12 @@ pub async fn create_proxy<F>(
     shutdown_signal: F,
     destination_base_urls: BTreeMap<String, String>,
     public_key_map: BTreeMap<String, BTreeMap<String, Base64>>,
-) where
+) -> Result<(), Box<dyn std::error::Error>>
+where
     F: Future<Output = ()> + Send + 'static,
 {
     let state = GatewayState {
-        http_client: create_http_client(None),
+        http_client: create_http_client(None)?,
         destination_base_urls,
         public_key_map,
     };
@@ -33,8 +34,10 @@ pub async fn create_proxy<F>(
         tokio::net::TcpListener::bind::<std::net::SocketAddr>(listening_addr.parse().unwrap())
             .await
             .unwrap();
-    axum::serve(listener, create_router(state).into_make_service())
-        .with_graceful_shutdown(shutdown_signal)
-        .await
-        .unwrap();
+    Ok(
+        axum::serve(listener, create_router(state).into_make_service())
+            .with_graceful_shutdown(shutdown_signal)
+            .await
+            .unwrap(),
+    )
 }

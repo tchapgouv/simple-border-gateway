@@ -32,7 +32,8 @@ pub async fn create_proxy<F>(
     shutdown_signal: F,
     upstream_proxy_config: Option<UpstreamProxyConfig>,
     _for_tests_only_mock_server_host: Option<String>,
-) where
+) -> Result<(), Box<dyn std::error::Error>>
+where
     F: Future<Output = ()> + Send + 'static,
 {
     let proxy_builder = get_proxy_builder(listening_addr, ca_priv_key_path, ca_cert_path);
@@ -45,15 +46,11 @@ pub async fn create_proxy<F>(
             allowed_external_domains_dangerous,
             upstream_proxy_config,
             _for_tests_only_mock_server_host,
-        ))
+        )?)
         .with_graceful_shutdown(shutdown_signal)
-        .build()
-        .expect("Failed to build proxy");
+        .build()?;
 
-    let res = proxy.start().await;
-    if res.is_err() {
-        println!("error outbound proxy start {:?}", res.err());
-    }
+    Ok(proxy.start().await?)
 }
 
 pub(crate) fn get_proxy_builder(

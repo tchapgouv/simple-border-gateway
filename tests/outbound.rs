@@ -179,6 +179,7 @@ mod tests {
             Some(UpstreamProxyConfig {
                 url: "http://127.0.0.1:3128".to_string(),
                 ca_pem: Some(upstream_proxy_ca_pem),
+                auth: None,
             }),
         )
         .await;

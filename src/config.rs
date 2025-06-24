@@ -20,7 +20,14 @@ pub struct ExternalHomeserverConfig {
 #[derive(Deserialize, Serialize)]
 pub struct UpstreamProxyConfig {
     pub url: String,
+    pub auth: Option<UpstreamProxyAuth>,
     pub ca_pem: Option<String>,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct UpstreamProxyAuth {
+    pub username: String,
+    pub password: String,
 }
 
 #[derive(Deserialize, Serialize)]

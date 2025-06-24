@@ -48,7 +48,7 @@ impl RegexEndpoint {
 
 #[derive(Clone)]
 pub(crate) struct LogHandler {
-    http_client: Option<reqwest::Client>,
+    http_client: reqwest::Client,
     allowed_servernames: HashSet<String>,
     allowed_federation_domains: HashSet<String>,
     allowed_client_domains: HashSet<String>,
@@ -64,34 +64,27 @@ impl LogHandler {
         allowed_external_domains: Vec<String>,
         upstream_proxy_config: Option<UpstreamProxyConfig>,
         _for_tests_only_mock_server_host: Option<String>,
-    ) -> Self {
-        LogHandler {
-            http_client: upstream_proxy_config
-                .map(|upstream_proxy_config| create_http_client(Some(upstream_proxy_config))),
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let http_client = create_http_client(upstream_proxy_config)?;
+        Ok(LogHandler {
+            http_client,
             allowed_servernames: HashSet::from_iter(allowed_servernames),
             allowed_federation_domains: HashSet::from_iter(allowed_federation_domains),
             allowed_client_domains: HashSet::from_iter(allowed_client_domains),
             allowed_external_domains: HashSet::from_iter(allowed_external_domains),
             _for_tests_only_mock_server_host,
-        }
+        })
     }
 
     async fn forward_outgoing_request(
         &self,
         req: http::Request<Body>,
     ) -> Result<RequestOrResponse, Box<dyn core::error::Error>> {
-        // `http_client` is defined if an upstream proxy is configured
-        // In this case, we need to execute the request with reqwest `http_client`,
-        // which is already configured to u
-        if let Some(http_client) = &self.http_client {
-            let request = convert_hudsucker_request_to_reqwest_request(req, http_client).await?;
-            let response = http_client.execute(request).await?;
-            Ok(convert_reqwest_response_to_hudsucker_response(response)
-                .await?
-                .into())
-        } else {
-            Ok(req.into())
-        }
+        let request = convert_hudsucker_request_to_reqwest_request(req, &self.http_client).await?;
+        let response = self.http_client.execute(request).await?;
+        Ok(convert_reqwest_response_to_hudsucker_response(response)
+            .await?
+            .into())
     }
 }
 
