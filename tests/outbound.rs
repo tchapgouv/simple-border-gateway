@@ -13,7 +13,7 @@ use simple_border_gateway::{
     util::{install_crypto_provider, set_req_scheme_and_authority},
 };
 
-pub(crate) fn get_well_known_endpoint_mock(mock_server: &MockServer) -> httpmock::Mock {
+pub(crate) fn get_well_known_endpoint_mock(mock_server: &'_ MockServer) -> httpmock::Mock<'_> {
     mock_server.mock(|when, then| {
         when.method("GET").path("/.well-known/matrix/server");
         then.status(200)
@@ -72,7 +72,8 @@ async fn create_outbound_proxy_and_client(
             upstream_proxy_config,
             mock_server_host,
         )
-        .await;
+        .await
+        .expect("Failed to create outbound proxy");
     });
 
     let client = reqwest::Client::builder()

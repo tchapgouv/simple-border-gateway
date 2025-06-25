@@ -20,7 +20,7 @@ pub async fn create_proxy<F>(
     shutdown_signal: F,
     destination_base_urls: BTreeMap<String, String>,
     public_key_map: BTreeMap<String, BTreeMap<String, Base64>>,
-) -> Result<(), Box<dyn std::error::Error>>
+) -> Result<(), anyhow::Error>
 where
     F: Future<Output = ()> + Send + 'static,
 {
@@ -34,10 +34,8 @@ where
         tokio::net::TcpListener::bind::<std::net::SocketAddr>(listening_addr.parse().unwrap())
             .await
             .unwrap();
-    Ok(
-        axum::serve(listener, create_router(state).into_make_service())
-            .with_graceful_shutdown(shutdown_signal)
-            .await
-            .unwrap(),
-    )
+    axum::serve(listener, create_router(state).into_make_service())
+        .with_graceful_shutdown(shutdown_signal)
+        .await
+        .map_err(|e| anyhow::anyhow!("Error starting inbound proxy: {}", e))
 }

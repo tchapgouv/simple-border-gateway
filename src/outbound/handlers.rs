@@ -64,7 +64,7 @@ impl LogHandler {
         allowed_external_domains: Vec<String>,
         upstream_proxy_config: Option<UpstreamProxyConfig>,
         _for_tests_only_mock_server_host: Option<String>,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
+    ) -> Result<Self, anyhow::Error> {
         let http_client = create_http_client(upstream_proxy_config)?;
         Ok(LogHandler {
             http_client,
@@ -79,11 +79,18 @@ impl LogHandler {
     async fn forward_outgoing_request(
         &self,
         req: http::Request<Body>,
-    ) -> Result<RequestOrResponse, Box<dyn core::error::Error>> {
-        let request = convert_hudsucker_request_to_reqwest_request(req, &self.http_client).await?;
-        let response = self.http_client.execute(request).await?;
+    ) -> Result<RequestOrResponse, anyhow::Error> {
+        let request = convert_hudsucker_request_to_reqwest_request(req, &self.http_client)
+            .await
+            .map_err(|e| anyhow::anyhow!("Error converting request: {}", e))?;
+        let response = self
+            .http_client
+            .execute(request)
+            .await
+            .map_err(|e| anyhow::anyhow!("Error forwarding request: {}", e))?;
         Ok(convert_reqwest_response_to_hudsucker_response(response)
-            .await?
+            .await
+            .map_err(|e| anyhow::anyhow!("Error converting response: {}", e))?
             .into())
     }
 }

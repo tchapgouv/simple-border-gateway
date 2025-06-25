@@ -32,7 +32,7 @@ pub async fn create_proxy<F>(
     shutdown_signal: F,
     upstream_proxy_config: Option<UpstreamProxyConfig>,
     _for_tests_only_mock_server_host: Option<String>,
-) -> Result<(), Box<dyn std::error::Error>>
+) -> Result<(), anyhow::Error>
 where
     F: Future<Output = ()> + Send + 'static,
 {

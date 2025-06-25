@@ -45,7 +45,8 @@ async fn test_well_known_endpoint() {
             destination_base_urls,
             public_key_map,
         )
-        .await;
+        .await
+        .expect("Failed to create inbound proxy");
     });
 
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
