@@ -19,6 +19,8 @@ use crate::{
     },
 };
 
+static OUTBOUND_PREFIX: &str = "OUT:";
+
 static ENDPOINT_PATTERN_RE: std::sync::LazyLock<Regex> =
     std::sync::LazyLock::new(|| Regex::new("\\{[^\\}]*}").unwrap());
 static REGEX_CLIENT_WELLKNOWN_ENDPOINT: std::sync::LazyLock<RegexEndpoint> =
@@ -141,7 +143,7 @@ impl HttpHandler for LogHandler {
                 .to_owned();
             if self.allowed_external_domains.contains(destination) {
                 info!(
-                    "{destination} {method} {path_and_query} : destination in allowed_external_domains, forward",
+                    "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : destination in allowed_external_domains, forward",
                 );
                 return self.forward_outgoing_request(req).await.unwrap();
             }
@@ -150,12 +152,12 @@ impl HttpHandler for LogHandler {
             if is_valid_request_for_endpoint(&req, &REGEX_SERVER_WELLKNOWN_ENDPOINT) {
                 if self.allowed_servernames.contains(destination) {
                     info!(
-                        "{destination} {method} {path_and_query} : valid and allowed server well-known request, forward",
+                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : valid and allowed server well-known request, forward",
                     );
                     return self.forward_outgoing_request(req).await.unwrap();
                 } else {
                     warn!(
-                        "{destination} {method} {path_and_query} : not an allowed well-known server request, block",
+                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : not an allowed well-known server request, block",
                     );
                     return create_forbidden_response("M_FORBIDDEN", None).into();
                 }
@@ -164,12 +166,12 @@ impl HttpHandler for LogHandler {
             if is_valid_request(&req, &REGEX_FEDERATION_ENDPOINTS) {
                 if self.allowed_federation_domains.contains(destination) {
                     info!(
-                        "{destination} {method} {path_and_query} : valid and allowed federation request, forward",
+                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : valid and allowed federation request, forward",
                     );
                     return self.forward_outgoing_request(req).await.unwrap();
                 } else {
                     warn!(
-                        "{destination} {method} {path_and_query} : not an allowed federation request, block",
+                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : not an allowed federation request, block",
                     );
                     return create_forbidden_response("M_FORBIDDEN", None).into();
                 }
@@ -179,12 +181,12 @@ impl HttpHandler for LogHandler {
             if is_valid_request_for_endpoint(&req, &REGEX_CLIENT_WELLKNOWN_ENDPOINT) {
                 if self.allowed_servernames.contains(destination) {
                     info!(
-                        "{destination} {method} {path_and_query} : valid and allowed client well-known request, forward",
+                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : valid and allowed client well-known request, forward",
                     );
                     return self.forward_outgoing_request(req).await.unwrap();
                 } else {
                     warn!(
-                        "{destination} {method} {path_and_query} : not an allowed well-known client request, block",
+                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : not an allowed well-known client request, block",
                     );
                     return create_forbidden_response("M_FORBIDDEN", None).into();
                 }
@@ -193,18 +195,18 @@ impl HttpHandler for LogHandler {
             if is_valid_request(&req, &REGEX_MEDIA_CLIENT_LEGACY_ENDPOINTS) {
                 if self.allowed_client_domains.contains(destination) {
                     info!(
-                        "{destination} {method} {path_and_query} : valid and allowed media client legacy request, forward",
+                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : valid and allowed media client legacy request, forward",
                     );
                     return self.forward_outgoing_request(req).await.unwrap();
                 } else {
                     warn!(
-                        "{destination} {method} {path_and_query} : not an allowed media client legacy request, block",
+                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : not an allowed media client legacy request, block",
                     );
                     return create_forbidden_response("M_FORBIDDEN", None).into();
                 }
             }
 
-            warn!("{destination} {method} {path_and_query} : unknown request, block",);
+            warn!("{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : unknown request, block",);
 
             http::Response::builder()
                 .status(StatusCode::FORBIDDEN)

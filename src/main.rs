@@ -1,5 +1,7 @@
-use tracing::{debug, info};
+use log::{debug, info};
 
+use std::env;
+use std::str::FromStr;
 use std::{collections::BTreeMap, fs};
 
 use ruma::{serde::Base64, signatures::PublicKeyMap};
@@ -13,9 +15,18 @@ use simple_border_gateway::{
 async fn main() {
     println!("Starting simple-border-gateway");
 
-    env_logger::Builder::new()
+    let app_log_level =
+        log::LevelFilter::from_str(env::var("LOG_LEVEL").unwrap_or_default().as_str())
+            .unwrap_or(log::LevelFilter::Info);
+
+    let mut builder = env_logger::Builder::new();
+    if app_log_level < log::LevelFilter::Debug {
+        builder.format_target(false);
+    }
+
+    builder
         .filter_level(log::LevelFilter::Warn)
-        .filter_module("simple_border_gateway", log::LevelFilter::Info)
+        .filter_module("simple_border_gateway", app_log_level)
         .format_timestamp_millis()
         .parse_default_env()
         .init();

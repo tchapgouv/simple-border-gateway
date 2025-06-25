@@ -48,7 +48,6 @@ where
 
 static X_FORWARDED_HOST_HEADER: &str = "x-forwarded-host";
 static X_FORWARDED_HOST_HEADER_NAME: HeaderName = HeaderName::from_static(X_FORWARDED_HOST_HEADER);
-
 pub(crate) struct XForwardedHost(pub String);
 
 impl Header for XForwardedHost {
@@ -66,6 +65,34 @@ impl Header for XForwardedHost {
             .ok_or_else(axum_extra::headers::Error::invalid)?;
         let string = value.to_str().unwrap().to_string();
         Ok(XForwardedHost(string))
+    }
+
+    fn encode<E: Extend<axum::http::HeaderValue>>(&self, values: &mut E) {
+        let value = HeaderValue::from_str(&self.0).unwrap();
+        values.extend(std::iter::once(value));
+    }
+}
+
+static X_FORWARDED_FOR_HEADER: &str = "x-forwarded-for";
+static X_FORWARDED_FOR_HEADER_NAME: HeaderName = HeaderName::from_static(X_FORWARDED_FOR_HEADER);
+
+pub(crate) struct XForwardedFor(pub String);
+
+impl Header for XForwardedFor {
+    fn name() -> &'static HeaderName {
+        &X_FORWARDED_FOR_HEADER_NAME
+    }
+
+    fn decode<'i, I>(values: &mut I) -> Result<Self, axum_extra::headers::Error>
+    where
+        Self: Sized,
+        I: Iterator<Item = &'i axum::http::HeaderValue>,
+    {
+        let value = values
+            .next()
+            .ok_or_else(axum_extra::headers::Error::invalid)?;
+        let string = value.to_str().unwrap().to_string();
+        Ok(XForwardedFor(string))
     }
 
     fn encode<E: Extend<axum::http::HeaderValue>>(&self, values: &mut E) {
