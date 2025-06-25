@@ -192,11 +192,17 @@ pub fn set_req_scheme_and_authority<B>(req: &mut http::Request<B>, scheme: &str,
     *req.uri_mut() = builder.build().unwrap();
 }
 
+pub(crate) fn normalize_uri(uri: &http::Uri) -> String {
+    let uri_str = uri.to_string();
+    match fluent_uri::Uri::parse(uri_str.clone()) {
+        Ok(fluent_uri) => fluent_uri.normalize().to_string(),
+        Err(_) => uri_str,
+    }
+}
+
 static REMOVE_DEFAULT_PORTS_REGEX: std::sync::LazyLock<Regex> =
-    std::sync::LazyLock::new(|| Regex::new(r"(:443|:80)$").unwrap());
+    std::sync::LazyLock::new(|| Regex::new(r"(:443|:80)[/$]").unwrap());
 
 pub(crate) fn remove_default_ports(host: &str) -> String {
-    REMOVE_DEFAULT_PORTS_REGEX
-        .replace_all(host, "")
-        .to_string()
+    REMOVE_DEFAULT_PORTS_REGEX.replace_all(host, "").to_string()
 }

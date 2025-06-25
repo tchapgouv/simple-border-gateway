@@ -15,7 +15,7 @@ use crate::{
     util::{
         convert_hudsucker_request_to_reqwest_request,
         convert_reqwest_response_to_hudsucker_response, create_forbidden_response,
-        create_http_client, remove_default_ports, set_req_scheme_and_authority,
+        create_http_client, normalize_uri, set_req_scheme_and_authority,
     },
 };
 
@@ -205,7 +205,7 @@ impl HttpHandler for LogHandler {
             }
 
             for regex in &self.allowed_non_matrix_regexes {
-                if regex.is_match(remove_default_ports(uri.to_string().as_str()).as_str()) {
+                if regex.is_match(normalize_uri(&uri).as_str()) {
                     info!(
                         "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : forward, destination uri matches regex {regex}",
                     );
