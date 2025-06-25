@@ -14,7 +14,8 @@ async fn main() {
     println!("Starting simple-border-gateway");
 
     env_logger::Builder::new()
-        .filter_level(log::LevelFilter::Info)
+        .filter_level(log::LevelFilter::Warn)
+        .filter_module("simple_border_gateway", log::LevelFilter::Info)
         .format_timestamp_millis()
         .parse_default_env()
         .init();

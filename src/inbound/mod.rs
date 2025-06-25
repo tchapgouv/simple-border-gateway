@@ -1,7 +1,8 @@
-use std::{collections::BTreeMap, future::Future};
+use std::{collections::BTreeMap, future::Future, net::SocketAddr};
 
 use router::create_router;
 use ruma::serde::Base64;
+use tokio::net::TcpListener;
 
 use crate::util::create_http_client;
 
@@ -30,10 +31,9 @@ where
         public_key_map,
     };
 
-    let listener =
-        tokio::net::TcpListener::bind::<std::net::SocketAddr>(listening_addr.parse().unwrap())
-            .await
-            .unwrap();
+    let listener = TcpListener::bind::<SocketAddr>(listening_addr.parse().unwrap())
+        .await
+        .unwrap();
     axum::serve(listener, create_router(state).into_make_service())
         .with_graceful_shutdown(shutdown_signal)
         .await
