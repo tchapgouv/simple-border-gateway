@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 
 use crate::util::{
-    create_empty_response, create_forbidden_response, XForwardedFor, XForwardedHost,
+    create_empty_response, create_forbidden_response, remove_default_ports, XForwardedFor,
+    XForwardedHost,
 };
 use axum::{
     body::Body,
@@ -11,7 +12,6 @@ use axum::{
 use axum_extra::TypedHeader;
 use http::StatusCode;
 use log::{info, warn};
-use regex::Regex;
 use ruma::{
     server_util::authorization::XMatrix,
     signatures::{verify_json, Error, PublicKeyMap},
@@ -24,15 +24,6 @@ use super::GatewayState;
 
 static INBOUND_PREFIX: &str = "IN :";
 
-static REMOVE_DEFAULT_PORTS_REGEX: std::sync::LazyLock<Regex> =
-    std::sync::LazyLock::new(|| Regex::new(r"(:443|:80)$").unwrap());
-
-fn remove_default_ports(x_forwarded_host: &str) -> String {
-    REMOVE_DEFAULT_PORTS_REGEX
-        .replace_all(x_forwarded_host, "")
-        .to_string()
-}
-
 pub(crate) async fn forbidden_handler(
     method: Method,
     uri: Uri,
@@ -41,7 +32,9 @@ pub(crate) async fn forbidden_handler(
 ) -> http::Response<Body> {
     let x_forwarded_host = remove_default_ports(&x_forwarded_host);
 
-    warn!("{INBOUND_PREFIX} {x_forwarded_for} -> {x_forwarded_host} {method} {uri} : forbidden request");
+    warn!(
+        "{INBOUND_PREFIX} {x_forwarded_for} -> {x_forwarded_host} {method} {uri} : always forbid"
+    );
     create_forbidden_response("M_FORBIDDEN", None)
 }
 
@@ -56,7 +49,9 @@ pub(crate) async fn forward_handler(
 ) -> http::Response<Body> {
     let x_forwarded_host = remove_default_ports(&x_forwarded_host);
 
-    info!("{INBOUND_PREFIX} {x_forwarded_for} -> {x_forwarded_host} {method} {uri} : forward request");
+    info!(
+        "{INBOUND_PREFIX} {x_forwarded_for} -> {x_forwarded_host} {method} {uri} : always forward"
+    );
     forward_incoming_request(
         state,
         method,
@@ -81,14 +76,14 @@ pub(crate) async fn verify_signature_handler(
     let x_forwarded_host = remove_default_ports(&x_forwarded_host);
 
     let Some(auth_header) = headers.get("Authorization") else {
-        warn!("{INBOUND_PREFIX} {x_forwarded_for} -> {x_forwarded_host} {method} {uri} : no authorization header, forbid request");
+        warn!("{INBOUND_PREFIX} {x_forwarded_for} -> {x_forwarded_host} {method} {uri} : forbid, no authorization header");
         return create_empty_response(StatusCode::FORBIDDEN);
     };
 
     let x_matrix = match XMatrix::parse(auth_header.to_str().unwrap_or_default()) {
         Ok(x_matrix) => x_matrix,
         Err(e) => {
-            warn!("{INBOUND_PREFIX} {x_forwarded_for} -> {x_forwarded_host} {method} {uri} : invalid X-Matrix auth header, forbid request, {e}");
+            warn!("{INBOUND_PREFIX} {x_forwarded_for} -> {x_forwarded_host} {method} {uri} : forbid, invalid X-Matrix auth header, {e}");
             return create_empty_response(StatusCode::FORBIDDEN);
         }
     };
@@ -96,7 +91,7 @@ pub(crate) async fn verify_signature_handler(
     let origin = x_matrix.origin.clone();
     if !state.public_key_map.contains_key(origin.as_str()) {
         warn!(
-            "{INBOUND_PREFIX} {origin} -> {x_forwarded_host} {method} {uri} : unauthorized server, forbid request"
+            "{INBOUND_PREFIX} {origin} -> {x_forwarded_host} {method} {uri} : forbid, unauthorized server"
         );
         return create_empty_response(StatusCode::FORBIDDEN);
     }
@@ -110,21 +105,21 @@ pub(crate) async fn verify_signature_handler(
     ) {
         Ok(_) => {
             info!(
-                "{INBOUND_PREFIX} {origin} -> {x_forwarded_host} {method} {uri} : authorized server, signature ok"
+                "{INBOUND_PREFIX} {origin} -> {x_forwarded_host} {method} {uri} : forward, authorized server and signature ok"
             );
             forward_incoming_request(
                 state,
                 method,
                 uri.path_and_query().map_or("", |p| p.as_str()),
                 &x_forwarded_host,
-                &origin.as_str(),
+                origin.as_str(),
                 headers,
                 Body::from(body),
             )
             .await
         }
         Err(e) => {
-            warn!("{INBOUND_PREFIX} {origin} -> {x_forwarded_host} {method} {uri} : authorized server but wrong signature, forbid request, {e}");
+            warn!("{INBOUND_PREFIX} {origin} -> {x_forwarded_host} {method} {uri} : forbid, authorized server but wrong signature, {e}");
             create_empty_response(StatusCode::FORBIDDEN)
         }
     }
@@ -135,7 +130,7 @@ struct SignedRequest {
     method: String,
     uri: String,
     origin: String,
-    destination: String,
+    destination: Option<String>,
     content: Option<Value>,
     signatures: BTreeMap<String, BTreeMap<String, String>>,
 }
@@ -158,9 +153,7 @@ fn verify_signature(
         method: method.to_string(),
         uri: uri.path_and_query().map_or("", |p| p.as_str()).to_owned(),
         origin: x_matrix.origin.as_str().to_owned(),
-        destination: x_matrix
-            .destination
-            .map_or("tout.im".to_string(), |d| d.to_string()), // TODO default
+        destination: x_matrix.destination.map(|d| d.to_string()),
         content: content_json,
         signatures,
     };
@@ -187,13 +180,13 @@ pub(crate) async fn forward_incoming_request(
     {
         dest_base_url.clone()
     } else {
-        warn!("{INBOUND_PREFIX} {origin} -> {destination_host} {method} {path_and_query} : destination unknown, block request");
+        warn!("{INBOUND_PREFIX} {origin} -> {destination_host} {method} {path_and_query} : block, destination unknown");
         return create_empty_response(StatusCode::BAD_GATEWAY);
     };
 
     let res = state
         .http_client
-        .request(method.clone(), format!("{INBOUND_PREFIX} {dest_base_url}{path_and_query}"))
+        .request(method.clone(), format!("{dest_base_url}{path_and_query}"))
         .headers(headers)
         .body(reqwest::Body::wrap_stream(body.into_data_stream()))
         .send()
@@ -202,7 +195,7 @@ pub(crate) async fn forward_incoming_request(
     match res {
         Ok(resp) => convert_response(resp).unwrap(), // TODO
         Err(e) => {
-            warn!("{INBOUND_PREFIX} {method} {path_and_query} : error forwarding the req to {dest_base_url} {e}");
+            warn!("{INBOUND_PREFIX} {method} {path_and_query} : block, error forwarding the req to {dest_base_url}, {e}");
             create_empty_response(StatusCode::BAD_GATEWAY)
         }
     }

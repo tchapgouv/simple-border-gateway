@@ -15,7 +15,7 @@ use crate::{
     util::{
         convert_hudsucker_request_to_reqwest_request,
         convert_reqwest_response_to_hudsucker_response, create_forbidden_response,
-        create_http_client, set_req_scheme_and_authority,
+        create_http_client, remove_default_ports, set_req_scheme_and_authority,
     },
 };
 
@@ -54,7 +54,7 @@ pub(crate) struct LogHandler {
     allowed_servernames: HashSet<String>,
     allowed_federation_domains: HashSet<String>,
     allowed_client_domains: HashSet<String>,
-    allowed_external_domains: HashSet<String>,
+    allowed_non_matrix_regexes: Vec<Regex>,
     _for_tests_only_mock_server_host: Option<String>,
 }
 
@@ -63,17 +63,21 @@ impl LogHandler {
         allowed_servernames: Vec<String>,
         allowed_federation_domains: Vec<String>,
         allowed_client_domains: Vec<String>,
-        allowed_external_domains: Vec<String>,
+        allowed_non_matrix_regexes: Vec<String>,
         upstream_proxy_config: Option<UpstreamProxyConfig>,
         _for_tests_only_mock_server_host: Option<String>,
     ) -> Result<Self, anyhow::Error> {
         let http_client = create_http_client(upstream_proxy_config)?;
+        let allowed_non_matrix_regexes = allowed_non_matrix_regexes
+            .iter()
+            .map(|regex| Regex::new(regex).unwrap())
+            .collect();
         Ok(LogHandler {
             http_client,
             allowed_servernames: HashSet::from_iter(allowed_servernames),
             allowed_federation_domains: HashSet::from_iter(allowed_federation_domains),
             allowed_client_domains: HashSet::from_iter(allowed_client_domains),
-            allowed_external_domains: HashSet::from_iter(allowed_external_domains),
+            allowed_non_matrix_regexes,
             _for_tests_only_mock_server_host,
         })
     }
@@ -141,23 +145,17 @@ impl HttpHandler for LogHandler {
                 .path_and_query()
                 .map_or("", |p| p.as_str())
                 .to_owned();
-            if self.allowed_external_domains.contains(destination) {
-                info!(
-                    "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : destination in allowed_external_domains, forward",
-                );
-                return self.forward_outgoing_request(req).await.unwrap();
-            }
 
             // Servers need to be able to discover other servers via well-known endpoints
             if is_valid_request_for_endpoint(&req, &REGEX_SERVER_WELLKNOWN_ENDPOINT) {
                 if self.allowed_servernames.contains(destination) {
                     info!(
-                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : valid and allowed server well-known request, forward",
+                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : forward, valid and allowed server well-known request",
                     );
                     return self.forward_outgoing_request(req).await.unwrap();
                 } else {
                     warn!(
-                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : not an allowed well-known server request, block",
+                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : forbid, not an allowed well-known server request",
                     );
                     return create_forbidden_response("M_FORBIDDEN", None).into();
                 }
@@ -166,12 +164,12 @@ impl HttpHandler for LogHandler {
             if is_valid_request(&req, &REGEX_FEDERATION_ENDPOINTS) {
                 if self.allowed_federation_domains.contains(destination) {
                     info!(
-                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : valid and allowed federation request, forward",
+                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : forward, valid and allowed federation request",
                     );
                     return self.forward_outgoing_request(req).await.unwrap();
                 } else {
                     warn!(
-                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : not an allowed federation request, block",
+                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : forbid, not an allowed federation request",
                     );
                     return create_forbidden_response("M_FORBIDDEN", None).into();
                 }
@@ -181,12 +179,12 @@ impl HttpHandler for LogHandler {
             if is_valid_request_for_endpoint(&req, &REGEX_CLIENT_WELLKNOWN_ENDPOINT) {
                 if self.allowed_servernames.contains(destination) {
                     info!(
-                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : valid and allowed client well-known request, forward",
+                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : forward, valid and allowed client well-known request",
                     );
                     return self.forward_outgoing_request(req).await.unwrap();
                 } else {
                     warn!(
-                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : not an allowed well-known client request, block",
+                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : forbid, not an allowed well-known client request",
                     );
                     return create_forbidden_response("M_FORBIDDEN", None).into();
                 }
@@ -195,21 +193,30 @@ impl HttpHandler for LogHandler {
             if is_valid_request(&req, &REGEX_MEDIA_CLIENT_LEGACY_ENDPOINTS) {
                 if self.allowed_client_domains.contains(destination) {
                     info!(
-                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : valid and allowed media client legacy request, forward",
+                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : forward, valid and allowed media client legacy request",
                     );
                     return self.forward_outgoing_request(req).await.unwrap();
                 } else {
                     warn!(
-                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : not an allowed media client legacy request, block",
+                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : forbid, not an allowed media client legacy request",
                     );
                     return create_forbidden_response("M_FORBIDDEN", None).into();
                 }
             }
 
-            warn!("{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : unknown request, block",);
+            for regex in &self.allowed_non_matrix_regexes {
+                if regex.is_match(remove_default_ports(uri.to_string().as_str()).as_str()) {
+                    info!(
+                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : forward, destination uri matches regex {regex}",
+                    );
+                    return self.forward_outgoing_request(req).await.unwrap();
+                }
+            }
+
+            warn!("{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : block, unknown request",);
 
             http::Response::builder()
-                .status(StatusCode::FORBIDDEN)
+                .status(StatusCode::BAD_GATEWAY)
                 .body(Body::empty())
                 .unwrap()
                 .into()

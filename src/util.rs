@@ -2,6 +2,7 @@ use axum_extra::headers::Header;
 use http::{HeaderName, HeaderValue, StatusCode};
 use http_body_util::BodyExt as _;
 use hyper::body::Body as _;
+use regex::Regex;
 use serde_json::{json, Value};
 
 use crate::config::UpstreamProxyConfig;
@@ -189,4 +190,13 @@ pub fn set_req_scheme_and_authority<B>(req: &mut http::Request<B>, scheme: &str,
         builder = builder.path_and_query(path_and_query);
     }
     *req.uri_mut() = builder.build().unwrap();
+}
+
+static REMOVE_DEFAULT_PORTS_REGEX: std::sync::LazyLock<Regex> =
+    std::sync::LazyLock::new(|| Regex::new(r"(:443|:80)$").unwrap());
+
+pub(crate) fn remove_default_ports(host: &str) -> String {
+    REMOVE_DEFAULT_PORTS_REGEX
+        .replace_all(host, "")
+        .to_string()
 }

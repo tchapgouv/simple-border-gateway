@@ -50,7 +50,7 @@ pub struct OutboundProxyConfig {
     pub ca_priv_key_path: String,
     pub ca_cert_path: String,
     #[serde(default)]
-    pub allowed_external_domains_dangerous: Vec<String>,
+    pub allowed_non_matrix_regexes_dangerous: Vec<String>,
     pub upstream_proxy: Option<UpstreamProxyConfig>,
 }
 

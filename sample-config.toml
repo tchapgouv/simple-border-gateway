@@ -12,8 +12,8 @@ ca_cert_path = "ca.crt"
 url = "https://127.0.0.1:3128"
 ca_pem = "==BEGIN CERTIFICATE==\n...\n==END CERTIFICATE=="
 
-allowed_external_domains_dangerous = [
-    "ntfy.sh"
+allowed_non_matrix_regexes_dangerous = [
+    "https://ntfy\\.sh/.*"
 ]
 
 [[internal_homeservers]]
@@ -23,7 +23,6 @@ destination_base_url = "http://localhost:8008"
 
 [[external_homeservers]]
 server_name = "matrix.org"
-# TODO shouldn't be needed, we should read `/.well-known/matrix/*` instead
 federation_domain = "matrix-federation.matrix.org:443"
 client_domain = "matrix-client.matrix.org:443"
 verify_keys = { "ed25519:a_RXGa" = "l8Hft5qXKn1vfHrg3p4+W8gELQVo8N13JkluMfmn2sQ" }

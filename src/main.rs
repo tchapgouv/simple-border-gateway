@@ -94,7 +94,7 @@ async fn main() {
                 allowed_servernames,
                 allowed_federation_domains,
                 allowed_client_domains,
-                outbound_proxy.allowed_external_domains_dangerous,
+                outbound_proxy.allowed_non_matrix_regexes_dangerous,
                 shutdown_signal(),
                 outbound_proxy.upstream_proxy,
                 None,
