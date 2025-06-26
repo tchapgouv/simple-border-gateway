@@ -97,6 +97,7 @@ impl GatewayHandler {
             .execute(request)
             .await
             .map_err(|e| anyhow::anyhow!("Error forwarding request: {}", e))?;
+        // TODO return bad gateway if error
         Ok(convert_reqwest_response_to_hudsucker_response(response)
             .await
             .map_err(|e| anyhow::anyhow!("Error converting response: {}", e))?
@@ -228,10 +229,10 @@ impl HttpHandler for GatewayHandler {
                 }
             }
 
-            warn!("{OUTBOUND_PREFIX} {origin} -> {destination} {method} {path_and_query} : block, unknown request");
+            warn!("{OUTBOUND_PREFIX} {origin} -> {destination} {method} {path_and_query} : not found, unknown request");
 
             http::Response::builder()
-                .status(StatusCode::BAD_GATEWAY)
+                .status(StatusCode::NOT_FOUND)
                 .body(Body::empty())
                 .unwrap()
                 .into()

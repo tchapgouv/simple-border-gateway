@@ -174,8 +174,8 @@ pub(crate) async fn forward_incoming_request(
     {
         dest_base_url.clone()
     } else {
-        warn!("{INBOUND_PREFIX} {origin} -> {destination} {method} {path_and_query} : block, destination unknown");
-        return create_empty_response(StatusCode::BAD_GATEWAY);
+        warn!("{INBOUND_PREFIX} {origin} -> {destination} {method} {path_and_query} : not found, destination unknown");
+        return create_empty_response(StatusCode::NOT_FOUND);
     };
 
     let res = state
