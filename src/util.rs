@@ -201,7 +201,7 @@ pub(crate) fn normalize_uri(uri: &http::Uri) -> String {
 }
 
 static REMOVE_DEFAULT_PORTS_REGEX: std::sync::LazyLock<Regex> =
-    std::sync::LazyLock::new(|| Regex::new(r"(:443|:80)[/$]").unwrap());
+    std::sync::LazyLock::new(|| Regex::new(r"(:443|:80)$").unwrap());
 
 pub(crate) fn remove_default_ports(host: &str) -> String {
     REMOVE_DEFAULT_PORTS_REGEX.replace_all(host, "").to_string()

@@ -3,7 +3,7 @@ use std::{
     future::{Future, Pending},
 };
 
-use handlers::LogHandler;
+use handlers::GatewayHandler;
 use hudsucker::{
     builder::{ProxyBuilder, WantsHandlers},
     hyper_util::client::legacy::connect::Connect,
@@ -39,7 +39,7 @@ where
     let proxy_builder = get_proxy_builder(listening_addr, ca_priv_key_path, ca_cert_path);
 
     let proxy = proxy_builder
-        .with_http_handler(LogHandler::new(
+        .with_http_handler(GatewayHandler::new(
             allowed_servernames,
             allowed_federation_domains,
             allowed_client_domains,

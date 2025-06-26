@@ -1,10 +1,11 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, net::IpAddr, time::Duration};
 
 use http::{Method, StatusCode};
 use log::{info, warn};
 use regex::Regex;
 
 use hudsucker::{Body, HttpContext, HttpHandler, RequestOrResponse};
+use ttl_cache::TtlCache;
 
 use crate::{
     config::UpstreamProxyConfig,
@@ -49,8 +50,9 @@ impl RegexEndpoint {
 }
 
 #[derive(Clone)]
-pub(crate) struct LogHandler {
+pub(crate) struct GatewayHandler {
     http_client: reqwest::Client,
+    rdns_cache: TtlCache<IpAddr, String>,
     allowed_servernames: HashSet<String>,
     allowed_federation_domains: HashSet<String>,
     allowed_client_domains: HashSet<String>,
@@ -58,7 +60,7 @@ pub(crate) struct LogHandler {
     _for_tests_only_mock_server_host: Option<String>,
 }
 
-impl LogHandler {
+impl GatewayHandler {
     pub(crate) fn new(
         allowed_servernames: Vec<String>,
         allowed_federation_domains: Vec<String>,
@@ -72,8 +74,9 @@ impl LogHandler {
             .iter()
             .map(|regex| Regex::new(regex).unwrap())
             .collect();
-        Ok(LogHandler {
+        Ok(GatewayHandler {
             http_client,
+            rdns_cache: TtlCache::new(10000),
             allowed_servernames: HashSet::from_iter(allowed_servernames),
             allowed_federation_domains: HashSet::from_iter(allowed_federation_domains),
             allowed_client_domains: HashSet::from_iter(allowed_client_domains),
@@ -123,7 +126,7 @@ fn is_valid_request_for_endpoint(req: &http::Request<Body>, endpoint: &RegexEndp
     false
 }
 
-impl HttpHandler for LogHandler {
+impl HttpHandler for GatewayHandler {
     async fn handle_request(
         &mut self,
         _ctx: &HttpContext,
@@ -135,6 +138,18 @@ impl HttpHandler for LogHandler {
         } else {
             let uri = req.uri().clone();
             let destination = uri.host().unwrap_or("");
+
+            let origin_ip = _ctx.client_addr.ip();
+            let origin = match self.rdns_cache.get(&origin_ip) {
+                Some(rdns) => rdns.clone(),
+                None => {
+                    let rdns = dns_lookup::lookup_addr(&origin_ip).unwrap_or(origin_ip.to_string());
+                    // Let's cache even if we failed to lookup the rdns, to not try again and again
+                    self.rdns_cache
+                        .insert(origin_ip, rdns.clone(), Duration::from_secs(10 * 60));
+                    rdns
+                }
+            };
 
             if let Some(mock_server_host) = &self._for_tests_only_mock_server_host {
                 set_req_scheme_and_authority(&mut req, "http", mock_server_host);
@@ -150,12 +165,12 @@ impl HttpHandler for LogHandler {
             if is_valid_request_for_endpoint(&req, &REGEX_SERVER_WELLKNOWN_ENDPOINT) {
                 if self.allowed_servernames.contains(destination) {
                     info!(
-                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : forward, valid and allowed server well-known request",
+                        "{OUTBOUND_PREFIX} {origin} -> {origin} -> {destination} {method} {path_and_query} : forward, valid and allowed server well-known request"
                     );
                     return self.forward_outgoing_request(req).await.unwrap();
                 } else {
                     warn!(
-                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : forbid, not an allowed well-known server request",
+                        "{OUTBOUND_PREFIX} {origin} -> {destination} {method} {path_and_query} : forbid, not an allowed well-known server request"
                     );
                     return create_forbidden_response("M_FORBIDDEN", None).into();
                 }
@@ -164,12 +179,12 @@ impl HttpHandler for LogHandler {
             if is_valid_request(&req, &REGEX_FEDERATION_ENDPOINTS) {
                 if self.allowed_federation_domains.contains(destination) {
                     info!(
-                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : forward, valid and allowed federation request",
+                        "{OUTBOUND_PREFIX} {origin} -> {destination} {method} {path_and_query} : forward, valid and allowed federation request"
                     );
                     return self.forward_outgoing_request(req).await.unwrap();
                 } else {
                     warn!(
-                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : forbid, not an allowed federation request",
+                        "{OUTBOUND_PREFIX} {origin} -> {destination} {method} {path_and_query} : forbid, not an allowed federation request"
                     );
                     return create_forbidden_response("M_FORBIDDEN", None).into();
                 }
@@ -179,12 +194,12 @@ impl HttpHandler for LogHandler {
             if is_valid_request_for_endpoint(&req, &REGEX_CLIENT_WELLKNOWN_ENDPOINT) {
                 if self.allowed_servernames.contains(destination) {
                     info!(
-                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : forward, valid and allowed client well-known request",
+                        "{OUTBOUND_PREFIX} {origin} -> {destination} {method} {path_and_query} : forward, valid and allowed client well-known request"
                     );
                     return self.forward_outgoing_request(req).await.unwrap();
                 } else {
                     warn!(
-                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : forbid, not an allowed well-known client request",
+                        "{OUTBOUND_PREFIX} {origin} -> {destination} {method} {path_and_query} : forbid, not an allowed well-known client request"
                     );
                     return create_forbidden_response("M_FORBIDDEN", None).into();
                 }
@@ -193,12 +208,12 @@ impl HttpHandler for LogHandler {
             if is_valid_request(&req, &REGEX_MEDIA_CLIENT_LEGACY_ENDPOINTS) {
                 if self.allowed_client_domains.contains(destination) {
                     info!(
-                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : forward, valid and allowed media client legacy request",
+                        "{OUTBOUND_PREFIX} {origin} -> {destination} {method} {path_and_query} : forward, valid and allowed media client legacy request"
                     );
                     return self.forward_outgoing_request(req).await.unwrap();
                 } else {
                     warn!(
-                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : forbid, not an allowed media client legacy request",
+                        "{OUTBOUND_PREFIX} {origin} -> {destination} {method} {path_and_query} : forbid, not an allowed media client legacy request",
                     );
                     return create_forbidden_response("M_FORBIDDEN", None).into();
                 }
@@ -207,13 +222,13 @@ impl HttpHandler for LogHandler {
             for regex in &self.allowed_non_matrix_regexes {
                 if regex.is_match(normalize_uri(&uri).as_str()) {
                     info!(
-                        "{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : forward, destination uri matches regex {regex}",
+                        "{OUTBOUND_PREFIX} {origin} -> {destination} {method} {path_and_query} : forward, destination uri matches regex {regex}"
                     );
                     return self.forward_outgoing_request(req).await.unwrap();
                 }
             }
 
-            warn!("{OUTBOUND_PREFIX} {destination} {method} {path_and_query} : block, unknown request",);
+            warn!("{OUTBOUND_PREFIX} {origin} -> {destination} {method} {path_and_query} : block, unknown request");
 
             http::Response::builder()
                 .status(StatusCode::BAD_GATEWAY)
