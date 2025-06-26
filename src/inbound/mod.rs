@@ -31,9 +31,7 @@ where
         public_key_map,
     };
 
-    let listener = TcpListener::bind::<SocketAddr>(listening_addr.parse().unwrap())
-        .await
-        .unwrap();
+    let listener = TcpListener::bind::<SocketAddr>(listening_addr.parse()?).await?;
     axum::serve(listener, create_router(state).into_make_service())
         .with_graceful_shutdown(shutdown_signal)
         .await

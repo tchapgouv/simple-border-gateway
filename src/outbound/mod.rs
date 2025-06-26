@@ -79,7 +79,11 @@ pub(crate) fn get_proxy_builder(
     );
 
     Proxy::builder()
-        .with_addr(listening_addr.parse().unwrap())
+        .with_addr(
+            listening_addr
+                .parse()
+                .expect("Failed to parse listening address"),
+        )
         .with_ca(ca)
         .with_rustls_client(crate::util::crypto_provider::default_provider())
 }

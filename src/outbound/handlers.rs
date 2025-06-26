@@ -22,6 +22,7 @@ use crate::{
 
 static OUTBOUND_PREFIX: &str = "OUT:";
 
+#[allow(clippy::unwrap_used)]
 static ENDPOINT_PATTERN_RE: std::sync::LazyLock<Regex> =
     std::sync::LazyLock::new(|| Regex::new("\\{[^\\}]*}").unwrap());
 static REGEX_CLIENT_WELLKNOWN_ENDPOINT: std::sync::LazyLock<RegexEndpoint> =

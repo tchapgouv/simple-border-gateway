@@ -200,6 +200,7 @@ pub(crate) fn normalize_uri(uri: &http::Uri) -> String {
     }
 }
 
+#[allow(clippy::unwrap_used)]
 static REMOVE_DEFAULT_PORTS_REGEX: std::sync::LazyLock<Regex> =
     std::sync::LazyLock::new(|| Regex::new(r"(:443|:80)$").unwrap());
 
