@@ -165,7 +165,7 @@ impl HttpHandler for GatewayHandler {
             if is_valid_request_for_endpoint(&req, &REGEX_SERVER_WELLKNOWN_ENDPOINT) {
                 if self.allowed_servernames.contains(destination) {
                     info!(
-                        "{OUTBOUND_PREFIX} {origin} -> {origin} -> {destination} {method} {path_and_query} : forward, valid and allowed server well-known request"
+                        "{OUTBOUND_PREFIX} {origin} -> {destination} {method} {path_and_query} : forward, valid and allowed server well-known request"
                     );
                     return self.forward_outgoing_request(req).await.unwrap();
                 } else {
