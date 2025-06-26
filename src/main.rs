@@ -28,6 +28,7 @@ async fn main() {
         .filter_level(log::LevelFilter::Warn)
         .filter_module("simple_border_gateway", app_log_level)
         .format_timestamp_millis()
+        .target(env_logger::Target::Stdout)
         .parse_default_env()
         .init();
 
