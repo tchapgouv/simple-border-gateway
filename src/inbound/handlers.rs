@@ -122,7 +122,9 @@ struct SignedRequest {
     method: String,
     uri: String,
     origin: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     destination: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     content: Option<Value>,
     signatures: BTreeMap<String, BTreeMap<String, String>>,
 }
