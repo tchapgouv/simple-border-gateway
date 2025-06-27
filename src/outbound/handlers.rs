@@ -183,7 +183,7 @@ impl HttpHandler for GatewayHandler {
                     info!(
                         "{OUTBOUND_PREFIX} {origin} -> {destination} {method} {path_and_query} : forward, valid and allowed federation request"
                     );
-                    return self.forward_outgoing_request(req).await.unwrap();
+                    return self.forward_outgoing_request(req).await.unwrap(); // TODO handle error
                 } else {
                     warn!(
                         "{OUTBOUND_PREFIX} {origin} -> {destination} {method} {path_and_query} : forbid, not an allowed federation request"
@@ -198,7 +198,7 @@ impl HttpHandler for GatewayHandler {
                     info!(
                         "{OUTBOUND_PREFIX} {origin} -> {destination} {method} {path_and_query} : forward, valid and allowed client well-known request"
                     );
-                    return self.forward_outgoing_request(req).await.unwrap();
+                    return self.forward_outgoing_request(req).await.unwrap(); // TODO handle error
                 } else {
                     warn!(
                         "{OUTBOUND_PREFIX} {origin} -> {destination} {method} {path_and_query} : forbid, not an allowed well-known client request"
@@ -212,7 +212,7 @@ impl HttpHandler for GatewayHandler {
                     info!(
                         "{OUTBOUND_PREFIX} {origin} -> {destination} {method} {path_and_query} : forward, valid and allowed media client legacy request"
                     );
-                    return self.forward_outgoing_request(req).await.unwrap();
+                    return self.forward_outgoing_request(req).await.unwrap(); // TODO handle error
                 } else {
                     warn!(
                         "{OUTBOUND_PREFIX} {origin} -> {destination} {method} {path_and_query} : forbid, not an allowed media client legacy request",

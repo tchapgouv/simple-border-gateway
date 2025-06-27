@@ -20,14 +20,15 @@ pub(crate) fn create_forbidden_json(errcode: &str, error_msg: Option<&str>) -> V
     }
 }
 
-pub(crate) fn create_empty_response<B>(status: StatusCode) -> http::Response<B>
+pub(crate) fn create_response<B>(status: StatusCode, body: Option<B>) -> http::Response<B>
 where
-    B: Default,
+    B: From<String>,
 {
+    #[allow(clippy::unwrap_used)]
     http::Response::builder()
         .status(status)
         .header("Content-Type", "application/json")
-        .body(B::default())
+        .body(body.unwrap_or_else(|| B::from("".to_string())))
         .unwrap()
 }
 
