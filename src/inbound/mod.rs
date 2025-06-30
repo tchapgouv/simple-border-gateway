@@ -35,8 +35,11 @@ where
     };
 
     let listener = TcpListener::bind::<SocketAddr>(listening_addr.parse()?).await?;
-    axum::serve(listener, create_router(state).into_make_service())
-        .with_graceful_shutdown(shutdown_signal)
-        .await
-        .map_err(|e| anyhow::anyhow!("Error starting inbound proxy: {}", e))
+    axum::serve(
+        listener,
+        create_router(state).into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal)
+    .await
+    .map_err(|e| anyhow::anyhow!("Error starting inbound proxy: {}", e))
 }

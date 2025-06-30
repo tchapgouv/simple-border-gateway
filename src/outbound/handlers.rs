@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, HashSet};
 
 use http::{Method, StatusCode};
-use log::{info, warn};
+use http_body_util::BodyExt as _;
+use log::Level;
 use regex::Regex;
 
 use hudsucker::{Body, HttpContext, HttpHandler, RequestOrResponse};
@@ -13,15 +14,14 @@ use crate::{
         SERVER_WELLKNOWN_ENDPOINT,
     },
     util::{
-        convert_hudsucker_request_to_reqwest_request,
-        convert_reqwest_response_to_hudsucker_response, create_forbidden_response,
-        create_http_client, normalize_uri, set_req_scheme_and_authority, ServerNameResolver,
+        create_http_client, create_matrix_response, create_status_response, normalize_uri,
+        set_req_scheme_and_authority, ReqContext, ServerNameResolver,
     },
 };
 
-static OUTBOUND_PREFIX: &str = "OUT:";
+const OUTBOUND_PREFIX: &str = "OUT";
 
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, reason = "lazy static regex")]
 static ENDPOINT_PATTERN_RE: std::sync::LazyLock<Regex> =
     std::sync::LazyLock::new(|| Regex::new("\\{[^\\}]*}").unwrap());
 static REGEX_CLIENT_WELLKNOWN_ENDPOINT: std::sync::LazyLock<RegexEndpoint> =
@@ -44,6 +44,10 @@ struct RegexEndpoint {
 impl RegexEndpoint {
     fn from(endpoint: Endpoint) -> Self {
         let regex_str = ENDPOINT_PATTERN_RE.replace_all(endpoint.path, ".*");
+        #[allow(
+            clippy::unwrap_used,
+            reason = " inputs statically defined in matrix_spec.rs"
+        )]
         let regex = Regex::new(&regex_str).unwrap();
         RegexEndpoint { regex, endpoint }
     }
@@ -72,8 +76,11 @@ impl GatewayHandler {
         let http_client = create_http_client(upstream_proxy_config)?;
         let allowed_non_matrix_regexes = allowed_non_matrix_regexes
             .iter()
-            .map(|regex| Regex::new(regex).unwrap())
-            .collect();
+            .map(|regex| {
+                Regex::new(regex)
+                    .map_err(|e| anyhow::anyhow!("Error parsing non matrix regex: {e}"))
+            })
+            .collect::<Result<Vec<Regex>, anyhow::Error>>()?;
 
         let mut allowed_servernames =
             HashSet::from_iter(allowed_federation_domains.values().cloned());
@@ -90,23 +97,27 @@ impl GatewayHandler {
         })
     }
 
-    async fn forward_outgoing_request(
+    async fn forward_request(
         &self,
-        req: http::Request<Body>,
-    ) -> Result<RequestOrResponse, anyhow::Error> {
-        let request = convert_hudsucker_request_to_reqwest_request(req, &self.http_client)
-            .await
-            .map_err(|e| anyhow::anyhow!("Error converting request: {}", e))?;
-        let response = self
-            .http_client
-            .execute(request)
-            .await
-            .map_err(|e| anyhow::anyhow!("Error forwarding request: {}", e))?;
-        // TODO return bad gateway if error
-        Ok(convert_reqwest_response_to_hudsucker_response(response)
-            .await
-            .map_err(|e| anyhow::anyhow!("Error converting response: {}", e))?
-            .into())
+        req_ctx: &mut ReqContext,
+        body: Body,
+        success_log_text: &str,
+    ) -> RequestOrResponse {
+        let response = req_ctx.forward_request(body.into_data_stream(), None).await;
+
+        match convert_response(response) {
+            Ok(resp) => {
+                req_ctx.log(Level::Info, success_log_text);
+                resp.into()
+            }
+            Err(e) => {
+                req_ctx.log(
+                    Level::Warn,
+                    &format!("503 - error converting response: {e}"),
+                );
+                create_status_response(StatusCode::BAD_GATEWAY).into()
+            }
+        }
     }
 }
 
@@ -138,101 +149,114 @@ impl HttpHandler for GatewayHandler {
         ctx: &HttpContext,
         mut req: http::Request<Body>,
     ) -> RequestOrResponse {
-        let method = req.method().clone();
-        if method == Method::CONNECT {
+        if req.method() == Method::CONNECT {
             req.into()
         } else {
-            let uri = req.uri().clone();
-            let destination = uri.host().unwrap_or("");
-            let dest_server_name = self.server_name_resolver.from_domain(destination);
+            let mut req_ctx = ReqContext::new(
+                &req,
+                ctx.client_addr,
+                self.http_client.clone(),
+                self.server_name_resolver.clone(),
+                OUTBOUND_PREFIX.to_string(),
+            );
 
-            let origin_ip = ctx.client_addr.ip();
-            let origin_server_name = self.server_name_resolver.from_ip(&origin_ip);
-
+            // TODO we can probably do better to inject the mock server host
             if let Some(mock_server_host) = &self._for_tests_only_mock_server_host {
                 set_req_scheme_and_authority(&mut req, "http", mock_server_host);
             }
 
-            let path_and_query = req
-                .uri()
-                .path_and_query()
-                .map_or("", |p| p.as_str())
-                .to_owned();
-
             // Servers need to be able to discover other servers via well-known endpoints
             if is_valid_request_for_endpoint(&req, &REGEX_SERVER_WELLKNOWN_ENDPOINT) {
-                if self.allowed_servernames.contains(destination) {
-                    info!(
-                        "{OUTBOUND_PREFIX} {origin_server_name} -> {dest_server_name} {method} {path_and_query} : forward, valid and allowed server well-known request"
-                    );
-                    return self.forward_outgoing_request(req).await.unwrap();
+                if self.allowed_servernames.contains(&req_ctx.destination) {
+                    return self
+                        .forward_request(
+                            &mut req_ctx,
+                            req.into_body(),
+                            "200 - forward, valid and allowed server well-known request",
+                        )
+                        .await;
                 } else {
-                    warn!(
-                        "{OUTBOUND_PREFIX} {origin_server_name} -> {dest_server_name} {method} {path_and_query} : forbid, not an allowed well-known server request"
+                    req_ctx.log(
+                        Level::Warn,
+                        "forbid, not an allowed well-known server request",
                     );
-                    return create_forbidden_response("M_FORBIDDEN", None).into();
+                    return create_matrix_response(StatusCode::FORBIDDEN, "M_FORBIDDEN").into();
                 }
             }
 
             if is_valid_request(&req, &REGEX_FEDERATION_ENDPOINTS) {
-                if self.allowed_federation_domains.contains_key(destination) {
-                    info!(
-                        "{OUTBOUND_PREFIX} {origin_server_name} -> {dest_server_name} {method} {path_and_query} : forward, valid and allowed federation request"
-                    );
-                    return self.forward_outgoing_request(req).await.unwrap(); // TODO handle error
+                if self
+                    .allowed_federation_domains
+                    .contains_key(&req_ctx.destination)
+                {
+                    return self
+                        .forward_request(
+                            &mut req_ctx,
+                            req.into_body(),
+                            "200 - forward, valid and allowed federation request",
+                        )
+                        .await;
                 } else {
-                    warn!(
-                        "{OUTBOUND_PREFIX} {origin_server_name} -> {dest_server_name} {method} {path_and_query} : forbid, not an allowed federation request"
-                    );
-                    return create_forbidden_response("M_FORBIDDEN", None).into();
+                    req_ctx.log(Level::Warn, "forbid, not an allowed federation request");
+                    return create_matrix_response(StatusCode::FORBIDDEN, "M_FORBIDDEN").into();
                 }
             }
 
             // Servers need to be able to discover the client API of other servers too because of the legacy media API endpoints
             if is_valid_request_for_endpoint(&req, &REGEX_CLIENT_WELLKNOWN_ENDPOINT) {
-                if self.allowed_servernames.contains(destination) {
-                    info!(
-                        "{OUTBOUND_PREFIX} {origin_server_name} -> {dest_server_name} {method} {path_and_query} : forward, valid and allowed client well-known request"
-                    );
-                    return self.forward_outgoing_request(req).await.unwrap(); // TODO handle error
+                if self.allowed_servernames.contains(&req_ctx.destination) {
+                    return self
+                        .forward_request(
+                            &mut req_ctx,
+                            req.into_body(),
+                            "200 - forward, valid and allowed client well-known request",
+                        )
+                        .await;
                 } else {
-                    warn!(
-                        "{OUTBOUND_PREFIX} {origin_server_name} -> {dest_server_name} {method} {path_and_query} : forbid, not an allowed well-known client request"
+                    req_ctx.log(
+                        Level::Warn,
+                        "forbid, not an allowed well-known client request",
                     );
-                    return create_forbidden_response("M_FORBIDDEN", None).into();
+                    return create_matrix_response(StatusCode::FORBIDDEN, "M_FORBIDDEN").into();
                 }
             }
 
             if is_valid_request(&req, &REGEX_MEDIA_CLIENT_LEGACY_ENDPOINTS) {
-                if self.allowed_client_domains.contains_key(destination) {
-                    info!(
-                        "{OUTBOUND_PREFIX} {origin_server_name} -> {dest_server_name} {method} {path_and_query} : forward, valid and allowed media client legacy request"
-                    );
-                    return self.forward_outgoing_request(req).await.unwrap(); // TODO handle error
+                if self
+                    .allowed_client_domains
+                    .contains_key(&req_ctx.destination)
+                {
+                    return self
+                        .forward_request(
+                            &mut req_ctx,
+                            req.into_body(),
+                            "200 - forward, valid and allowed media client legacy request",
+                        )
+                        .await;
                 } else {
-                    warn!(
-                        "{OUTBOUND_PREFIX} {origin_server_name} -> {dest_server_name} {method} {path_and_query} : forbid, not an allowed media client legacy request",
+                    req_ctx.log(
+                        Level::Warn,
+                        "forbid, not an allowed media client legacy request",
                     );
-                    return create_forbidden_response("M_FORBIDDEN", None).into();
+                    return create_matrix_response(StatusCode::FORBIDDEN, "M_FORBIDDEN").into();
                 }
             }
 
+            let normalized_uri = normalize_uri(req.uri());
             for regex in &self.allowed_non_matrix_regexes {
-                if regex.is_match(normalize_uri(&uri).as_str()) {
-                    info!(
-                        "{OUTBOUND_PREFIX} {origin_server_name} -> {dest_server_name} {method} {path_and_query} : forward, destination uri matches regex {regex}"
-                    );
-                    return self.forward_outgoing_request(req).await.unwrap();
+                if regex.is_match(normalized_uri.as_str()) {
+                    return self
+                        .forward_request(
+                            &mut req_ctx,
+                            req.into_body(),
+                            "200 - forward,destination uri matches regex",
+                        )
+                        .await;
                 }
             }
 
-            warn!("{OUTBOUND_PREFIX} {origin_server_name} -> {dest_server_name} {method} {path_and_query} : not found, unknown request");
-
-            http::Response::builder()
-                .status(StatusCode::NOT_FOUND)
-                .body(Body::empty())
-                .unwrap()
-                .into()
+            req_ctx.log(Level::Warn, "404 - not found, unknown request");
+            create_status_response(StatusCode::NOT_FOUND).into()
         }
     }
 
@@ -243,4 +267,25 @@ impl HttpHandler for GatewayHandler {
     ) -> http::Response<Body> {
         res
     }
+}
+
+pub(crate) fn convert_response(
+    response: http::Response<reqwest::Body>,
+) -> Result<http::Response<hudsucker::Body>, anyhow::Error> {
+    let (parts, body) = response.into_parts();
+    let mut builder = http::Response::builder().status(parts.status);
+
+    #[allow(clippy::unwrap_used, reason = "should never happen")]
+    let headers = builder.headers_mut().unwrap();
+    for (name, value) in &parts.headers {
+        headers.insert(name, value.clone());
+    }
+
+    let stream = futures::StreamExt::map(body.into_data_stream(), |result| {
+        result.map_err(std::io::Error::other)
+    });
+
+    builder
+        .body(hudsucker::Body::from_stream(stream))
+        .map_err(|e| anyhow::anyhow!("Error building response: {}", e))
 }

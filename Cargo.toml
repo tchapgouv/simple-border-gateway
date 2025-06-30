@@ -5,7 +5,6 @@ edition = "2021"
 
 [dependencies]
 axum = { version = "0.8", features = ["http2", "tokio"] }
-axum-extra = { version = "0.10", features = ["typed-header"] }
 
 hudsucker = { version = "0.23", default-features = false, features = [
     "http2",
@@ -69,3 +68,10 @@ async_once = "0.2"
 default = ["aws_lc_rs"]
 ring = ["rustls/ring"]
 aws_lc_rs = ["rustls/aws_lc_rs", "rcgen/aws_lc_rs"]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+unwrap_used = "deny"
+allow_attributes_without_reason = "forbid"

@@ -21,7 +21,7 @@ use crate::{config::UpstreamProxyConfig, util::ServerNameResolver};
 
 mod handlers;
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, reason = "parsed args from main")]
 pub async fn create_proxy<F>(
     listening_addr: &str,
     ca_priv_key_path: &str,

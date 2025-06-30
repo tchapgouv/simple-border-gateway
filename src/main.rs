@@ -26,7 +26,8 @@ async fn main() {
     }
 
     builder
-        .filter_level(log::LevelFilter::Warn)
+        // Only log errors for dependencies by default
+        .filter_level(log::LevelFilter::Error)
         .filter_module("simple_border_gateway", app_log_level)
         .format_timestamp_millis()
         .target(env_logger::Target::Stdout)

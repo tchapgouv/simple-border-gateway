@@ -1,4 +1,4 @@
-// Reference spec v1.13
+// Reference spec v1.15
 
 use http::Method;
 
@@ -93,6 +93,7 @@ pub(crate) const FEDERATION_ENDPOINTS: [Endpoint; 36] = [
         method: Some(Method::GET),
         auth_type: AuthType::CheckSignature,
     },
+    // DEPRECATED
     Endpoint {
         path: "/_matrix/federation/v1/send_join/{roomId}/{eventId}",
         method: Some(Method::POST),
