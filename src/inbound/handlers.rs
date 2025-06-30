@@ -8,7 +8,7 @@ use axum::{
 };
 use axum_extra::TypedHeader;
 use http::StatusCode;
-use log::{info, warn};
+use log::{info, log, warn};
 use ruma::{
     server_util::authorization::XMatrix,
     signatures::{verify_json, Error, PublicKeyMap},
@@ -21,16 +21,79 @@ use super::GatewayState;
 
 static INBOUND_PREFIX: &str = "IN :";
 
+fn extract_method_and_path_and_query(req: &Request<Body>) -> (Method, String) {
+    let method = req.method().clone();
+    let path_and_query = req
+        .uri()
+        .path_and_query()
+        .map_or("", |p| p.as_str())
+        .to_owned();
+    (method, path_and_query)
+}
+
+fn extract_origin_and_destination(req: &Request<Body>) -> (String, String) {
+    let origin = if let Some(origin) = req
+        .headers()
+        .get("X-Forwarded-For")
+        .map(|h| h.to_str().unwrap_or_default())
+    {
+        origin.to_string()
+    } else {
+        // TODO
+        req.headers()
+            .get("Host")
+            .map(|h| h.to_str().unwrap_or_default())
+            .unwrap_or_default()
+            .to_string()
+    };
+
+    let destination = if let Some(destination) = req
+        .headers()
+        .get("X-Forwarded-Host")
+        .map(|h| h.to_str().unwrap_or_default())
+    {
+        destination.to_string()
+    } else {
+        // TODO
+        req.uri().host().unwrap_or_default().to_string()
+    };
+
+    (origin, destination)
+}
+
+fn pretty_log(
+    level: log::Level,
+    msg: &str,
+    origin: &str,
+    destination: &str,
+    method: &Method,
+    path_and_query: &str,
+    state: &mut GatewayState,
+) {
+    let origin_server_name = state.server_name_resolver.from_domain(&origin);
+    let dest_server_name = state.server_name_resolver.from_domain(&destination);
+    log!(level, "{INBOUND_PREFIX} {origin_server_name} -> {dest_server_name} {method} {path_and_query} : {msg}");
+}
+
+fn pretty_log_req(level: log::Level, msg: &str, req: &Request<Body>, state: &mut GatewayState) {
+    let (origin, destination) = extract_origin_and_destination(req);
+    let (method, path_and_query) = extract_method_and_path_and_query(req);
+    pretty_log(
+        level,
+        msg,
+        &origin,
+        &destination,
+        &method,
+        &path_and_query,
+        state,
+    );
+}
+
 pub(crate) async fn forbidden_handler(
     State(mut state): State<GatewayState>,
-    method: Method,
-    uri: Uri,
-    TypedHeader(XForwardedFor(origin)): TypedHeader<XForwardedFor>,
-    TypedHeader(XForwardedHost(destination)): TypedHeader<XForwardedHost>,
+    req: Request<Body>,
 ) -> http::Response<Body> {
-    let destination = state.server_name_resolver.from_domain(&destination);
-
-    warn!("{INBOUND_PREFIX} {origin} -> {destination} {method} {uri} : 403 - always forbid");
+    pretty_log_req(log::Level::Warn, "403 - always forbid", &req, &mut state);
     create_forbidden_response("M_FORBIDDEN", None)
 }
 
@@ -43,8 +106,6 @@ pub(crate) async fn forward_handler(
     headers: HeaderMap,
     request: Request<Body>,
 ) -> http::Response<Body> {
-    let destination = state.server_name_resolver.from_domain(&destination);
-
     let res = forward_incoming_request(
         state,
         &method,
@@ -78,8 +139,6 @@ pub(crate) async fn verify_signature_handler(
     headers: HeaderMap,
     body: String,
 ) -> http::Response<Body> {
-    let destination = state.server_name_resolver.from_domain(&destination);
-
     let Some(auth_header) = headers.get("Authorization") else {
         warn!("{INBOUND_PREFIX} {origin} -> {destination} {method} {uri} : 403 - forbid, no authorization header");
         // TODO create_forbidden_response or not ? synapse behavior to check
