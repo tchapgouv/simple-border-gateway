@@ -1,8 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::util::{
-    create_forbidden_response, create_response, remove_default_ports, XForwardedFor, XForwardedHost,
-};
+use crate::util::{create_forbidden_response, create_response, XForwardedFor, XForwardedHost};
 use axum::{
     body::Body,
     extract::State,
@@ -24,19 +22,20 @@ use super::GatewayState;
 static INBOUND_PREFIX: &str = "IN :";
 
 pub(crate) async fn forbidden_handler(
+    State(mut state): State<GatewayState>,
     method: Method,
     uri: Uri,
     TypedHeader(XForwardedFor(origin)): TypedHeader<XForwardedFor>,
     TypedHeader(XForwardedHost(destination)): TypedHeader<XForwardedHost>,
 ) -> http::Response<Body> {
-    let destination = remove_default_ports(&destination);
+    let destination = state.server_name_resolver.from_domain(&destination);
 
     warn!("{INBOUND_PREFIX} {origin} -> {destination} {method} {uri} : 403 - always forbid");
     create_forbidden_response("M_FORBIDDEN", None)
 }
 
 pub(crate) async fn forward_handler(
-    State(state): State<GatewayState>,
+    State(mut state): State<GatewayState>,
     method: Method,
     uri: Uri,
     TypedHeader(XForwardedFor(origin)): TypedHeader<XForwardedFor>,
@@ -44,7 +43,7 @@ pub(crate) async fn forward_handler(
     headers: HeaderMap,
     request: Request<Body>,
 ) -> http::Response<Body> {
-    let destination = remove_default_ports(&destination);
+    let destination = state.server_name_resolver.from_domain(&destination);
 
     let res = forward_incoming_request(
         state,
@@ -71,7 +70,7 @@ pub(crate) async fn forward_handler(
 }
 
 pub(crate) async fn verify_signature_handler(
-    State(state): State<GatewayState>,
+    State(mut state): State<GatewayState>,
     method: Method,
     uri: Uri,
     TypedHeader(XForwardedFor(origin)): TypedHeader<XForwardedFor>,
@@ -79,7 +78,7 @@ pub(crate) async fn verify_signature_handler(
     headers: HeaderMap,
     body: String,
 ) -> http::Response<Body> {
-    let destination = remove_default_ports(&destination);
+    let destination = state.server_name_resolver.from_domain(&destination);
 
     let Some(auth_header) = headers.get("Authorization") else {
         warn!("{INBOUND_PREFIX} {origin} -> {destination} {method} {uri} : 403 - forbid, no authorization header");

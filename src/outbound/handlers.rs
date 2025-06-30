@@ -1,11 +1,10 @@
-use std::{collections::HashSet, net::IpAddr, time::Duration};
+use std::collections::{BTreeMap, HashSet};
 
 use http::{Method, StatusCode};
 use log::{info, warn};
 use regex::Regex;
 
 use hudsucker::{Body, HttpContext, HttpHandler, RequestOrResponse};
-use ttl_cache::TtlCache;
 
 use crate::{
     config::UpstreamProxyConfig,
@@ -16,7 +15,7 @@ use crate::{
     util::{
         convert_hudsucker_request_to_reqwest_request,
         convert_reqwest_response_to_hudsucker_response, create_forbidden_response,
-        create_http_client, normalize_uri, set_req_scheme_and_authority,
+        create_http_client, normalize_uri, set_req_scheme_and_authority, ServerNameResolver,
     },
 };
 
@@ -53,19 +52,19 @@ impl RegexEndpoint {
 #[derive(Clone)]
 pub(crate) struct GatewayHandler {
     http_client: reqwest::Client,
-    rdns_cache: TtlCache<IpAddr, String>,
+    server_name_resolver: ServerNameResolver,
     allowed_servernames: HashSet<String>,
-    allowed_federation_domains: HashSet<String>,
-    allowed_client_domains: HashSet<String>,
+    allowed_federation_domains: BTreeMap<String, String>,
+    allowed_client_domains: BTreeMap<String, String>,
     allowed_non_matrix_regexes: Vec<Regex>,
     _for_tests_only_mock_server_host: Option<String>,
 }
 
 impl GatewayHandler {
     pub(crate) fn new(
-        allowed_servernames: Vec<String>,
-        allowed_federation_domains: Vec<String>,
-        allowed_client_domains: Vec<String>,
+        server_name_resolver: ServerNameResolver,
+        allowed_federation_domains: BTreeMap<String, String>,
+        allowed_client_domains: BTreeMap<String, String>,
         allowed_non_matrix_regexes: Vec<String>,
         upstream_proxy_config: Option<UpstreamProxyConfig>,
         _for_tests_only_mock_server_host: Option<String>,
@@ -75,12 +74,17 @@ impl GatewayHandler {
             .iter()
             .map(|regex| Regex::new(regex).unwrap())
             .collect();
+
+        let mut allowed_servernames =
+            HashSet::from_iter(allowed_federation_domains.values().cloned());
+        allowed_servernames.extend(allowed_client_domains.values().cloned());
+
         Ok(GatewayHandler {
             http_client,
-            rdns_cache: TtlCache::new(10000),
-            allowed_servernames: HashSet::from_iter(allowed_servernames),
-            allowed_federation_domains: HashSet::from_iter(allowed_federation_domains),
-            allowed_client_domains: HashSet::from_iter(allowed_client_domains),
+            server_name_resolver,
+            allowed_servernames,
+            allowed_federation_domains,
+            allowed_client_domains,
             allowed_non_matrix_regexes,
             _for_tests_only_mock_server_host,
         })
@@ -131,7 +135,7 @@ fn is_valid_request_for_endpoint(req: &http::Request<Body>, endpoint: &RegexEndp
 impl HttpHandler for GatewayHandler {
     async fn handle_request(
         &mut self,
-        _ctx: &HttpContext,
+        ctx: &HttpContext,
         mut req: http::Request<Body>,
     ) -> RequestOrResponse {
         let method = req.method().clone();
@@ -140,18 +144,10 @@ impl HttpHandler for GatewayHandler {
         } else {
             let uri = req.uri().clone();
             let destination = uri.host().unwrap_or("");
+            let dest_server_name = self.server_name_resolver.from_domain(destination);
 
-            let origin_ip = _ctx.client_addr.ip();
-            let origin = match self.rdns_cache.get(&origin_ip) {
-                Some(rdns) => rdns.clone(),
-                None => {
-                    let rdns = dns_lookup::lookup_addr(&origin_ip).unwrap_or(origin_ip.to_string());
-                    // Let's cache even if we failed to lookup the rdns, to not try again and again
-                    self.rdns_cache
-                        .insert(origin_ip, rdns.clone(), Duration::from_secs(10 * 60));
-                    rdns
-                }
-            };
+            let origin_ip = ctx.client_addr.ip();
+            let origin_server_name = self.server_name_resolver.from_ip(&origin_ip);
 
             if let Some(mock_server_host) = &self._for_tests_only_mock_server_host {
                 set_req_scheme_and_authority(&mut req, "http", mock_server_host);
@@ -167,26 +163,26 @@ impl HttpHandler for GatewayHandler {
             if is_valid_request_for_endpoint(&req, &REGEX_SERVER_WELLKNOWN_ENDPOINT) {
                 if self.allowed_servernames.contains(destination) {
                     info!(
-                        "{OUTBOUND_PREFIX} {origin} -> {destination} {method} {path_and_query} : forward, valid and allowed server well-known request"
+                        "{OUTBOUND_PREFIX} {origin_server_name} -> {dest_server_name} {method} {path_and_query} : forward, valid and allowed server well-known request"
                     );
                     return self.forward_outgoing_request(req).await.unwrap();
                 } else {
                     warn!(
-                        "{OUTBOUND_PREFIX} {origin} -> {destination} {method} {path_and_query} : forbid, not an allowed well-known server request"
+                        "{OUTBOUND_PREFIX} {origin_server_name} -> {dest_server_name} {method} {path_and_query} : forbid, not an allowed well-known server request"
                     );
                     return create_forbidden_response("M_FORBIDDEN", None).into();
                 }
             }
 
             if is_valid_request(&req, &REGEX_FEDERATION_ENDPOINTS) {
-                if self.allowed_federation_domains.contains(destination) {
+                if self.allowed_federation_domains.contains_key(destination) {
                     info!(
-                        "{OUTBOUND_PREFIX} {origin} -> {destination} {method} {path_and_query} : forward, valid and allowed federation request"
+                        "{OUTBOUND_PREFIX} {origin_server_name} -> {dest_server_name} {method} {path_and_query} : forward, valid and allowed federation request"
                     );
                     return self.forward_outgoing_request(req).await.unwrap(); // TODO handle error
                 } else {
                     warn!(
-                        "{OUTBOUND_PREFIX} {origin} -> {destination} {method} {path_and_query} : forbid, not an allowed federation request"
+                        "{OUTBOUND_PREFIX} {origin_server_name} -> {dest_server_name} {method} {path_and_query} : forbid, not an allowed federation request"
                     );
                     return create_forbidden_response("M_FORBIDDEN", None).into();
                 }
@@ -196,26 +192,26 @@ impl HttpHandler for GatewayHandler {
             if is_valid_request_for_endpoint(&req, &REGEX_CLIENT_WELLKNOWN_ENDPOINT) {
                 if self.allowed_servernames.contains(destination) {
                     info!(
-                        "{OUTBOUND_PREFIX} {origin} -> {destination} {method} {path_and_query} : forward, valid and allowed client well-known request"
+                        "{OUTBOUND_PREFIX} {origin_server_name} -> {dest_server_name} {method} {path_and_query} : forward, valid and allowed client well-known request"
                     );
                     return self.forward_outgoing_request(req).await.unwrap(); // TODO handle error
                 } else {
                     warn!(
-                        "{OUTBOUND_PREFIX} {origin} -> {destination} {method} {path_and_query} : forbid, not an allowed well-known client request"
+                        "{OUTBOUND_PREFIX} {origin_server_name} -> {dest_server_name} {method} {path_and_query} : forbid, not an allowed well-known client request"
                     );
                     return create_forbidden_response("M_FORBIDDEN", None).into();
                 }
             }
 
             if is_valid_request(&req, &REGEX_MEDIA_CLIENT_LEGACY_ENDPOINTS) {
-                if self.allowed_client_domains.contains(destination) {
+                if self.allowed_client_domains.contains_key(destination) {
                     info!(
-                        "{OUTBOUND_PREFIX} {origin} -> {destination} {method} {path_and_query} : forward, valid and allowed media client legacy request"
+                        "{OUTBOUND_PREFIX} {origin_server_name} -> {dest_server_name} {method} {path_and_query} : forward, valid and allowed media client legacy request"
                     );
                     return self.forward_outgoing_request(req).await.unwrap(); // TODO handle error
                 } else {
                     warn!(
-                        "{OUTBOUND_PREFIX} {origin} -> {destination} {method} {path_and_query} : forbid, not an allowed media client legacy request",
+                        "{OUTBOUND_PREFIX} {origin_server_name} -> {dest_server_name} {method} {path_and_query} : forbid, not an allowed media client legacy request",
                     );
                     return create_forbidden_response("M_FORBIDDEN", None).into();
                 }
@@ -224,13 +220,13 @@ impl HttpHandler for GatewayHandler {
             for regex in &self.allowed_non_matrix_regexes {
                 if regex.is_match(normalize_uri(&uri).as_str()) {
                     info!(
-                        "{OUTBOUND_PREFIX} {origin} -> {destination} {method} {path_and_query} : forward, destination uri matches regex {regex}"
+                        "{OUTBOUND_PREFIX} {origin_server_name} -> {dest_server_name} {method} {path_and_query} : forward, destination uri matches regex {regex}"
                     );
                     return self.forward_outgoing_request(req).await.unwrap();
                 }
             }
 
-            warn!("{OUTBOUND_PREFIX} {origin} -> {destination} {method} {path_and_query} : not found, unknown request");
+            warn!("{OUTBOUND_PREFIX} {origin_server_name} -> {dest_server_name} {method} {path_and_query} : not found, unknown request");
 
             http::Response::builder()
                 .status(StatusCode::NOT_FOUND)

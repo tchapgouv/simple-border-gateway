@@ -1,4 +1,5 @@
 use log::{debug, info};
+use simple_border_gateway::util::ServerNameResolver;
 
 use std::env;
 use std::str::FromStr;
@@ -44,20 +45,23 @@ async fn main() {
 
     debug!("Crypto provider installed");
 
+    let mut domain_server_name_map = BTreeMap::new();
     let mut destination_base_urls: BTreeMap<String, String> = BTreeMap::new();
+
     for hs in config.internal_homeservers {
+        domain_server_name_map.insert(hs.federation_domain.clone(), hs.server_name.clone());
         destination_base_urls.insert(hs.federation_domain, hs.destination_base_url);
     }
 
-    let mut allowed_servernames: Vec<String> = Vec::new();
-    let mut allowed_federation_domains: Vec<String> = Vec::new();
-    let mut allowed_client_domains: Vec<String> = Vec::new();
+    let mut allowed_federation_domains: BTreeMap<String, String> = BTreeMap::new();
+    let mut allowed_client_domains: BTreeMap<String, String> = BTreeMap::new();
     let mut public_key_map: PublicKeyMap = BTreeMap::new();
 
     for hs in config.external_homeservers {
-        allowed_servernames.push(hs.server_name.clone());
-        allowed_federation_domains.push(hs.federation_domain);
-        allowed_client_domains.push(hs.client_domain);
+        domain_server_name_map.insert(hs.federation_domain.clone(), hs.server_name.clone());
+        allowed_federation_domains.insert(hs.federation_domain, hs.server_name.clone());
+        domain_server_name_map.insert(hs.client_domain.clone(), hs.server_name.clone());
+        allowed_client_domains.insert(hs.client_domain, hs.server_name.clone());
 
         let mut verify_keys: BTreeMap<String, Base64> = BTreeMap::new();
         for (k, v) in hs.verify_keys {
@@ -73,9 +77,12 @@ async fn main() {
 
     let mut tasks = vec![];
 
+    let server_name_resolver_inbound = ServerNameResolver::new(domain_server_name_map);
+    let server_name_resolver_outbound = server_name_resolver_inbound.clone();
     tasks.push(tokio::spawn(async move {
         inbound::create_proxy(
             &config.listen_address,
+            server_name_resolver_inbound,
             shutdown_signal(),
             destination_base_urls,
             public_key_map,
@@ -92,7 +99,7 @@ async fn main() {
                 &outbound_proxy.listen_address,
                 &outbound_proxy.ca_priv_key_path,
                 &outbound_proxy.ca_cert_path,
-                allowed_servernames,
+                server_name_resolver_outbound,
                 allowed_federation_domains,
                 allowed_client_domains,
                 outbound_proxy.allowed_non_matrix_regexes_dangerous,

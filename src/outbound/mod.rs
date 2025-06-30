@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     fs,
     future::{Future, Pending},
 };
@@ -16,7 +17,7 @@ use hudsucker::{
     rcgen::{CertificateParams, KeyPair},
 };
 
-use crate::config::UpstreamProxyConfig;
+use crate::{config::UpstreamProxyConfig, util::ServerNameResolver};
 
 mod handlers;
 
@@ -25,9 +26,9 @@ pub async fn create_proxy<F>(
     listening_addr: &str,
     ca_priv_key_path: &str,
     ca_cert_path: &str,
-    allowed_servernames: Vec<String>,
-    allowed_federation_domains: Vec<String>,
-    allowed_client_domains: Vec<String>,
+    server_name_resolver: ServerNameResolver,
+    allowed_federation_domains: BTreeMap<String, String>,
+    allowed_client_domains: BTreeMap<String, String>,
     allowed_external_domains_dangerous: Vec<String>,
     shutdown_signal: F,
     upstream_proxy_config: Option<UpstreamProxyConfig>,
@@ -40,7 +41,7 @@ where
 
     let proxy = proxy_builder
         .with_http_handler(GatewayHandler::new(
-            allowed_servernames,
+            server_name_resolver,
             allowed_federation_domains,
             allowed_client_domains,
             allowed_external_domains_dangerous,

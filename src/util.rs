@@ -1,9 +1,17 @@
+use std::{
+    collections::BTreeMap,
+    net::IpAddr,
+    sync::{Arc, RwLock},
+    time::Duration,
+};
+
 use axum_extra::headers::Header;
 use http::{HeaderName, HeaderValue, StatusCode};
 use http_body_util::BodyExt as _;
 use hyper::body::Body as _;
 use regex::Regex;
 use serde_json::{json, Value};
+use ttl_cache::TtlCache;
 
 use crate::config::UpstreamProxyConfig;
 
@@ -205,6 +213,55 @@ pub(crate) fn normalize_uri(uri: &http::Uri) -> String {
 static REMOVE_DEFAULT_PORTS_REGEX: std::sync::LazyLock<Regex> =
     std::sync::LazyLock::new(|| Regex::new(r"(:443|:80)$").unwrap());
 
-pub(crate) fn remove_default_ports(host: &str) -> String {
+fn remove_default_ports(host: &str) -> String {
     REMOVE_DEFAULT_PORTS_REGEX.replace_all(host, "").to_string()
+}
+
+#[derive(Clone)]
+pub struct ServerNameResolver {
+    domain_server_name_map: BTreeMap<String, String>,
+    rdns_cache: Arc<RwLock<TtlCache<IpAddr, String>>>,
+}
+
+impl ServerNameResolver {
+    pub fn new(domain_server_name_map: BTreeMap<String, String>) -> Self {
+        Self {
+            domain_server_name_map,
+            rdns_cache: Arc::new(RwLock::new(TtlCache::new(10000))),
+        }
+    }
+
+    pub fn from_domain(&mut self, domain: &str) -> String {
+        let domain = remove_default_ports(domain);
+        self.domain_server_name_map
+            .get(domain.as_str())
+            .unwrap_or(&domain)
+            .clone()
+    }
+
+    pub fn from_ip(&mut self, ip: &IpAddr) -> String {
+        let domain = self.rdns_lookup(ip);
+        self.from_domain(&domain)
+    }
+
+    pub fn rdns_lookup(&mut self, ip: &IpAddr) -> String {
+        #[allow(clippy::unwrap_used, reason = "rdns_cache should not be poisoned")]
+        if let Some(cached_domain) = self.rdns_cache.read().unwrap().get(ip) {
+            return cached_domain.clone();
+        }
+
+        // Let's still cache a bit even if we failed to lookup the rdns,
+        // to not try again on each req
+        let (domain, validity_minutes) = match dns_lookup::lookup_addr(ip) {
+            Ok(domain) => (domain, 60),
+            Err(_) => (ip.to_string(), 10),
+        };
+        #[allow(clippy::unwrap_used, reason = "rdns_cache should not be poisoned")]
+        self.rdns_cache.write().unwrap().insert(
+            *ip,
+            domain.clone(),
+            Duration::from_secs(validity_minutes * 60),
+        );
+        domain
+    }
 }
