@@ -120,12 +120,12 @@ pub(crate) fn remove_default_ports(host: &str) -> String {
 }
 
 #[derive(Clone)]
-pub struct ServerNameResolver {
+pub struct NameResolver {
     domain_server_name_map: BTreeMap<String, String>,
     rdns_cache: Arc<RwLock<TtlCache<IpAddr, String>>>,
 }
 
-impl ServerNameResolver {
+impl NameResolver {
     pub fn new(domain_server_name_map: BTreeMap<String, String>) -> Self {
         Self {
             domain_server_name_map,
@@ -133,7 +133,7 @@ impl ServerNameResolver {
         }
     }
 
-    pub fn from_domain(&mut self, domain: &str) -> String {
+    pub fn domain_to_server_name(&mut self, domain: &str) -> String {
         let domain = remove_default_ports(domain);
         self.domain_server_name_map
             .get(domain.as_str())
@@ -141,12 +141,12 @@ impl ServerNameResolver {
             .clone()
     }
 
-    pub fn from_ip(&mut self, ip: &IpAddr) -> String {
-        let domain = self.rdns_lookup(ip);
-        self.from_domain(&domain)
+    pub fn ip_to_server_name(&mut self, ip: &IpAddr) -> String {
+        let domain = self.ip_to_domain(ip);
+        self.domain_to_server_name(&domain)
     }
 
-    pub fn rdns_lookup(&mut self, ip: &IpAddr) -> String {
+    pub fn ip_to_domain(&mut self, ip: &IpAddr) -> String {
         #[allow(clippy::unwrap_used, reason = "rdns_cache should not be poisoned")]
         if let Some(cached_domain) = self.rdns_cache.read().unwrap().get(ip) {
             return cached_domain.clone();
@@ -171,12 +171,12 @@ impl ServerNameResolver {
 fn extract_origin_and_destination<B>(
     req: &Request<B>,
     socket_addr: SocketAddr,
-    server_name_resolver: &mut ServerNameResolver,
+    name_resolver: &mut NameResolver,
 ) -> (String, String) {
     let origin = if let Some(x_forwarded_for) = req.headers().get("X-Forwarded-For") {
         x_forwarded_for.to_str().unwrap_or_default().to_string()
     } else {
-        server_name_resolver.from_ip(&socket_addr.ip())
+        name_resolver.ip_to_server_name(&socket_addr.ip())
     };
 
     let destination = if let Some(x_forwarded_host) = req.headers().get("X-Forwarded-Host") {
@@ -194,15 +194,16 @@ fn extract_origin_and_destination<B>(
 }
 
 pub(crate) struct ReqContext {
-    pub(crate) origin: String,
-    pub(crate) destination: String,
     pub(crate) method: Method,
     pub(crate) uri: Uri,
     pub(crate) headers: HeaderMap,
 
+    pub(crate) origin: String,
+    pub(crate) destination: String,
+
     log_prefix: String,
     http_client: reqwest::Client,
-    server_name_resolver: ServerNameResolver,
+    name_resolver: NameResolver,
 }
 
 impl ReqContext {
@@ -210,21 +211,21 @@ impl ReqContext {
         req: &Request<B>,
         socket_addr: SocketAddr,
         http_client: reqwest::Client,
-        mut server_name_resolver: ServerNameResolver,
+        mut name_resolver: NameResolver,
         log_prefix: String,
     ) -> Self {
         let (origin, destination) =
-            extract_origin_and_destination(req, socket_addr, &mut server_name_resolver);
+            extract_origin_and_destination(req, socket_addr, &mut name_resolver);
 
         Self {
-            origin,
-            destination,
             method: req.method().clone(),
             uri: req.uri().clone(),
             headers: req.headers().clone(),
+            origin,
+            destination,
             log_prefix,
             http_client,
-            server_name_resolver,
+            name_resolver,
         }
     }
 
@@ -269,8 +270,8 @@ impl ReqContext {
             level,
             "{0}: {1} -> {2} {3} {4} : {5}",
             self.log_prefix,
-            self.server_name_resolver.from_domain(&self.origin),
-            self.server_name_resolver.from_domain(&self.destination),
+            self.name_resolver.domain_to_server_name(&self.origin),
+            self.name_resolver.domain_to_server_name(&self.destination),
             self.method,
             self.path_and_query(),
             msg

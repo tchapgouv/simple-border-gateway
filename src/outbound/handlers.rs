@@ -15,7 +15,7 @@ use crate::{
     },
     util::{
         create_http_client, create_matrix_response, create_status_response, normalize_uri,
-        set_req_scheme_and_authority, ReqContext, ServerNameResolver,
+        set_req_scheme_and_authority, NameResolver, ReqContext,
     },
 };
 
@@ -56,7 +56,7 @@ impl RegexEndpoint {
 #[derive(Clone)]
 pub(crate) struct GatewayHandler {
     http_client: reqwest::Client,
-    server_name_resolver: ServerNameResolver,
+    name_resolver: NameResolver,
     allowed_servernames: HashSet<String>,
     allowed_federation_domains: BTreeMap<String, String>,
     allowed_client_domains: BTreeMap<String, String>,
@@ -66,7 +66,7 @@ pub(crate) struct GatewayHandler {
 
 impl GatewayHandler {
     pub(crate) fn new(
-        server_name_resolver: ServerNameResolver,
+        name_resolver: NameResolver,
         allowed_federation_domains: BTreeMap<String, String>,
         allowed_client_domains: BTreeMap<String, String>,
         allowed_non_matrix_regexes: Vec<String>,
@@ -88,7 +88,7 @@ impl GatewayHandler {
 
         Ok(GatewayHandler {
             http_client,
-            server_name_resolver,
+            name_resolver,
             allowed_servernames,
             allowed_federation_domains,
             allowed_client_domains,
@@ -156,7 +156,7 @@ impl HttpHandler for GatewayHandler {
                 &req,
                 ctx.client_addr,
                 self.http_client.clone(),
-                self.server_name_resolver.clone(),
+                self.name_resolver.clone(),
                 OUTBOUND_PREFIX.to_string(),
             );
 

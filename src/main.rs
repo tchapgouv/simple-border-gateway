@@ -1,5 +1,5 @@
 use log::{debug, info};
-use simple_border_gateway::util::ServerNameResolver;
+use simple_border_gateway::util::NameResolver;
 
 use std::env;
 use std::str::FromStr;
@@ -78,7 +78,7 @@ async fn main() {
 
     let mut tasks = vec![];
 
-    let server_name_resolver_inbound = ServerNameResolver::new(domain_server_name_map);
+    let server_name_resolver_inbound = NameResolver::new(domain_server_name_map);
     let server_name_resolver_outbound = server_name_resolver_inbound.clone();
     tasks.push(tokio::spawn(async move {
         inbound::create_proxy(

@@ -17,7 +17,7 @@ use hudsucker::{
     rcgen::{CertificateParams, KeyPair},
 };
 
-use crate::{config::UpstreamProxyConfig, util::ServerNameResolver};
+use crate::{config::UpstreamProxyConfig, util::NameResolver};
 
 mod handlers;
 
@@ -26,7 +26,7 @@ pub async fn create_proxy<F>(
     listening_addr: &str,
     ca_priv_key_path: &str,
     ca_cert_path: &str,
-    server_name_resolver: ServerNameResolver,
+    name_resolver: NameResolver,
     allowed_federation_domains: BTreeMap<String, String>,
     allowed_client_domains: BTreeMap<String, String>,
     allowed_external_domains_dangerous: Vec<String>,
@@ -41,7 +41,7 @@ where
 
     let proxy = proxy_builder
         .with_http_handler(GatewayHandler::new(
-            server_name_resolver,
+            name_resolver,
             allowed_federation_domains,
             allowed_client_domains,
             allowed_external_domains_dangerous,

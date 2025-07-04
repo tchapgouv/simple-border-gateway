@@ -29,7 +29,7 @@ fn create_req_context(
         req,
         socket_addr,
         state.http_client.clone(),
-        state.server_name_resolver.clone(),
+        state.name_resolver.clone(),
         INBOUND_PREFIX.to_string(),
     )
 }
