@@ -1,8 +1,4 @@
-use std::{
-    collections::BTreeMap,
-    fs,
-    future::{Future, Pending},
-};
+use std::{collections::BTreeMap, fs, future::Pending};
 
 use handlers::GatewayHandler;
 use hudsucker::{
@@ -17,12 +13,15 @@ use hudsucker::{
     rcgen::{CertificateParams, KeyPair},
 };
 
-use crate::{config::UpstreamProxyConfig, util::NameResolver};
+use crate::{
+    config::UpstreamProxyConfig,
+    util::{shutdown_signal, NameResolver},
+};
 
 mod handlers;
 
 #[allow(clippy::too_many_arguments, reason = "parsed args from main")]
-pub async fn create_proxy<F>(
+pub async fn create_proxy(
     listening_addr: &str,
     ca_priv_key_path: &str,
     ca_cert_path: &str,
@@ -30,13 +29,9 @@ pub async fn create_proxy<F>(
     allowed_federation_domains: BTreeMap<String, String>,
     allowed_client_domains: BTreeMap<String, String>,
     allowed_external_domains_dangerous: Vec<String>,
-    shutdown_signal: F,
     upstream_proxy_config: Option<UpstreamProxyConfig>,
     _for_tests_only_mock_server_host: Option<String>,
-) -> Result<(), anyhow::Error>
-where
-    F: Future<Output = ()> + Send + 'static,
-{
+) -> Result<(), anyhow::Error> {
     let proxy_builder = get_proxy_builder(listening_addr, ca_priv_key_path, ca_cert_path);
 
     let proxy = proxy_builder
@@ -48,7 +43,7 @@ where
             upstream_proxy_config,
             _for_tests_only_mock_server_host,
         )?)
-        .with_graceful_shutdown(shutdown_signal)
+        .with_graceful_shutdown(shutdown_signal())
         .build()?;
 
     Ok(proxy.start().await?)

@@ -84,7 +84,6 @@ async fn main() {
         inbound::create_proxy(
             &config.listen_address,
             server_name_resolver_inbound,
-            shutdown_signal(),
             destination_base_urls,
             public_key_map,
         )
@@ -104,7 +103,6 @@ async fn main() {
                 allowed_federation_domains,
                 allowed_client_domains,
                 outbound_proxy.allowed_non_matrix_regexes_dangerous,
-                shutdown_signal(),
                 outbound_proxy.upstream_proxy,
                 None,
             )

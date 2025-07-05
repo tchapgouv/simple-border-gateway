@@ -1,10 +1,10 @@
-use std::{collections::BTreeMap, future::Future, net::SocketAddr};
+use std::{collections::BTreeMap, net::SocketAddr};
 
 use router::create_router;
 use ruma::serde::Base64;
 use tokio::net::TcpListener;
 
-use crate::util::{create_http_client, NameResolver};
+use crate::util::{create_http_client, shutdown_signal, NameResolver};
 
 mod handlers;
 mod router;
@@ -17,16 +17,12 @@ pub(crate) struct GatewayState {
     public_key_map: BTreeMap<String, BTreeMap<String, Base64>>,
 }
 
-pub async fn create_proxy<F>(
+pub async fn create_proxy(
     listening_addr: &str,
     name_resolver: NameResolver,
-    shutdown_signal: F,
     destination_base_urls: BTreeMap<String, String>,
     public_key_map: BTreeMap<String, BTreeMap<String, Base64>>,
-) -> Result<(), anyhow::Error>
-where
-    F: Future<Output = ()> + Send + 'static,
-{
+) -> Result<(), anyhow::Error> {
     let state = GatewayState {
         http_client: create_http_client(None)?,
         name_resolver,
@@ -39,7 +35,7 @@ where
         listener,
         create_router(state).into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .with_graceful_shutdown(shutdown_signal)
+    .with_graceful_shutdown(shutdown_signal())
     .await
     .map_err(|e| anyhow::anyhow!("Error starting inbound proxy: {}", e))
 }
