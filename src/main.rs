@@ -7,10 +7,7 @@ use std::{collections::BTreeMap, fs};
 
 use ruma::{serde::Base64, signatures::PublicKeyMap};
 use simple_border_gateway::config::BorderGatewayConfig;
-use simple_border_gateway::{
-    inbound, outbound,
-    util::{install_crypto_provider, shutdown_signal},
-};
+use simple_border_gateway::{inbound, outbound, util::install_crypto_provider};
 
 #[tokio::main]
 async fn main() {

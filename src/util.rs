@@ -50,12 +50,13 @@ pub(crate) fn create_http_client(
 
 pub(crate) fn create_response<B: From<String>>(
     status: StatusCode,
-    body: Option<B>,
+    body_and_content_type: Option<(B, &str)>,
 ) -> Result<http::Response<B>, http::Error> {
-    http::Response::builder()
-        .status(status)
-        .header("Content-Type", "application/json")
-        .body(body.unwrap_or_else(|| B::from("".to_string())))
+    let builder = http::Response::builder().status(status);
+    if let Some((body, content_type)) = body_and_content_type {
+        return builder.header("Content-Type", content_type).body(body);
+    }
+    builder.body(B::from("".to_string()))
 }
 
 pub(crate) fn create_status_response<B: From<String>>(status: StatusCode) -> http::Response<B> {
@@ -78,7 +79,10 @@ pub(crate) fn create_matrix_response_with_msg<B: From<String>>(
 ) -> Result<http::Response<B>, http::Error> {
     create_response(
         status,
-        Some(B::from(create_error_json(errcode, error_msg).to_string())),
+        Some((
+            B::from(create_error_json(errcode, error_msg).to_string()),
+            "application/json",
+        )),
     )
 }
 
