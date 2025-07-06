@@ -234,7 +234,6 @@ pub(crate) const SERVER_WELLKNOWN_ENDPOINT: Endpoint = Endpoint {
 };
 
 pub(crate) const CLIENT_WELLKNOWN_ENDPOINT: Endpoint = Endpoint {
-    // TODO check for the dot regex escape in outbound handler
     path: "/.well-known/matrix/client",
     method: Some(Method::GET),
     auth_type: AuthType::Unauthenticated,

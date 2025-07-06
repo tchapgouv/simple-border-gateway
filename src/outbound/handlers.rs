@@ -22,7 +22,7 @@ use crate::{
 const OUTBOUND_PREFIX: &str = "OUT";
 
 #[allow(clippy::unwrap_used, reason = "lazy static regex")]
-static ENDPOINT_PATTERN_RE: std::sync::LazyLock<Regex> =
+static REPLACE_VARIABLES_RE: std::sync::LazyLock<Regex> =
     std::sync::LazyLock::new(|| Regex::new("\\{[^\\}]*}").unwrap());
 static REGEX_CLIENT_WELLKNOWN_ENDPOINT: std::sync::LazyLock<RegexEndpoint> =
     std::sync::LazyLock::new(|| RegexEndpoint::from(CLIENT_WELLKNOWN_ENDPOINT));
@@ -43,12 +43,15 @@ struct RegexEndpoint {
 
 impl RegexEndpoint {
     fn from(endpoint: Endpoint) -> Self {
-        let regex_str = ENDPOINT_PATTERN_RE.replace_all(endpoint.path, ".*");
+        // escape dots so they don't get interpreted
+        let mut regex = endpoint.path.replace(".", "\\.");
+        // replace variables in brackets with .*
+        regex = REPLACE_VARIABLES_RE.replace_all(&regex, ".*").to_string();
         #[allow(
             clippy::unwrap_used,
             reason = " inputs statically defined in matrix_spec.rs"
         )]
-        let regex = Regex::new(&regex_str).unwrap();
+        let regex = Regex::new(&regex).unwrap();
         RegexEndpoint { regex, endpoint }
     }
 }
