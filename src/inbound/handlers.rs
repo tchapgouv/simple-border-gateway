@@ -40,13 +40,10 @@ async fn forward_request(
     success_log_text: &str,
     state: &mut GatewayState,
 ) -> http::Response<Body> {
-    let dest_base_url =
-        if let Some(dest_base_url) = state.destination_base_urls.get(&req_ctx.destination) {
-            dest_base_url
-        } else {
-            req_ctx.log(Level::Warn, "404 - destination unknown");
-            return create_status_response(StatusCode::NOT_FOUND);
-        };
+    let Some(dest_base_url) = state.destination_base_urls.get(&req_ctx.destination) else {
+        req_ctx.log(Level::Warn, "404 - destination unknown");
+        return create_status_response(StatusCode::NOT_FOUND);
+    };
 
     let response = req_ctx
         .forward_request(body.into_data_stream(), Some(dest_base_url))

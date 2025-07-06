@@ -44,6 +44,7 @@ pub(crate) fn create_http_client(
             builder =
                 builder.add_root_certificate(reqwest::Certificate::from_pem(ca_pem.as_bytes())?);
         }
+        // dns resolver dns overrides ?
     }
     builder.build()
 }
