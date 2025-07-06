@@ -111,8 +111,8 @@ pub(crate) async fn verify_signature_handler(
     }
 
     let Ok(body) = to_bytes(req.into_body(), 1024 * 1024 * 10).await else {
-        req_ctx.log(Level::Warn, "400 - bad request, req body too large");
-        return create_status_response(StatusCode::BAD_REQUEST);
+        req_ctx.log(Level::Warn, "413 - req body too large");
+        return create_status_response(StatusCode::PAYLOAD_TOO_LARGE);
     };
 
     let Ok(body) = String::from_utf8(body.to_vec()) else {
