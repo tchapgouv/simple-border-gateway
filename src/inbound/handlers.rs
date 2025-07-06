@@ -91,31 +91,33 @@ pub(crate) async fn verify_signature_handler(
     let mut req_ctx = create_req_context(&req, socket_addr, &mut state);
 
     let Some(auth_header) = req_ctx.headers.get("Authorization") else {
-        req_ctx.log(Level::Warn, "403 - forbid, no authorization header");
-        // TODO create_forbidden_response or not ? synapse behavior to check
-        return create_matrix_response(StatusCode::FORBIDDEN, "M_FORBIDDEN");
+        req_ctx.log(Level::Warn, "401 - unauthorized, no authorization header");
+        return create_matrix_response(StatusCode::UNAUTHORIZED, "M_UNAUTHORIZED");
     };
 
     let Ok(x_matrix) = XMatrix::parse(auth_header.to_str().unwrap_or_default()) else {
-        req_ctx.log(Level::Warn, "403 - forbid, invalid X-Matrix auth header");
-        return create_matrix_response(StatusCode::FORBIDDEN, "M_FORBIDDEN");
+        req_ctx.log(
+            Level::Warn,
+            "401 - unauthorized, invalid X-Matrix auth header",
+        );
+        return create_matrix_response(StatusCode::UNAUTHORIZED, "M_UNAUTHORIZED");
     };
 
     // let's override the origin with the server name from the X-Matrix header
     req_ctx.origin = x_matrix.origin.clone().to_string();
     if !state.public_key_map.contains_key(req_ctx.origin.as_str()) {
-        req_ctx.log(Level::Warn, "403 - forbid, unauthorized server");
-        return create_matrix_response(StatusCode::FORBIDDEN, "M_FORBIDDEN");
+        req_ctx.log(Level::Warn, "401 - unauthorized, unauthorized server");
+        return create_matrix_response(StatusCode::UNAUTHORIZED, "M_UNAUTHORIZED");
     }
 
     let Ok(body) = to_bytes(req.into_body(), 1024 * 1024 * 10).await else {
-        req_ctx.log(Level::Warn, "403 - forbid, req body too large");
-        return create_status_response(StatusCode::FORBIDDEN);
+        req_ctx.log(Level::Warn, "400 - bad request, req body too large");
+        return create_status_response(StatusCode::BAD_REQUEST);
     };
 
     let Ok(body) = String::from_utf8(body.to_vec()) else {
-        req_ctx.log(Level::Warn, "403 - forbid, req body not utf8");
-        return create_status_response(StatusCode::FORBIDDEN);
+        req_ctx.log(Level::Warn, "400 - bad request, req body not utf8");
+        return create_status_response(StatusCode::BAD_REQUEST);
     };
 
     match verify_signature(&state.public_key_map, &req_ctx, x_matrix, &body) {
@@ -131,10 +133,10 @@ pub(crate) async fn verify_signature_handler(
         Err(e) => {
             req_ctx.log(
                 Level::Warn,
-                &format!("403 - forbid, authorized server but wrong signature: {e}"),
+                &format!("401 - unauthorized, authorized server but wrong signature: {e}"),
             );
             #[allow(clippy::unwrap_used, reason = "no intrusted input")]
-            create_matrix_response(StatusCode::FORBIDDEN, "M_FORBIDDEN")
+            create_matrix_response(StatusCode::UNAUTHORIZED, "M_UNAUTHORIZED")
         }
     }
 }
