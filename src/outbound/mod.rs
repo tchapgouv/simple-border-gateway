@@ -21,7 +21,7 @@ pub async fn create_proxy(
     name_resolver: NameResolver,
     allowed_federation_domains: BTreeMap<String, String>,
     allowed_client_domains: BTreeMap<String, String>,
-    allowed_external_domains_dangerous: Vec<String>,
+    allowed_non_matrix_regexes_dangerous: Vec<String>,
     _for_tests_only_mock_server_host: Option<String>,
 ) -> Result<(), anyhow::Error> {
     let ca_private_key = read_pem(ca_priv_key)?;
@@ -52,7 +52,7 @@ pub async fn create_proxy(
             name_resolver,
             allowed_federation_domains,
             allowed_client_domains,
-            allowed_external_domains_dangerous,
+            allowed_non_matrix_regexes_dangerous,
             _for_tests_only_mock_server_host,
         )?)
         .with_graceful_shutdown(shutdown_signal())
