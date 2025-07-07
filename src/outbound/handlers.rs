@@ -13,7 +13,7 @@ use crate::{
         SERVER_WELLKNOWN_ENDPOINT,
     },
     util::{
-        create_matrix_response, create_status_response, normalize_uri,
+        create_matrix_response, create_status_response, remove_default_ports_from_uri,
         set_req_scheme_and_authority, NameResolver, ReqContext,
     },
 };
@@ -243,9 +243,9 @@ impl HttpHandler for GatewayHandler {
                 }
             }
 
-            let normalized_uri = normalize_uri(req.uri());
+            let uri = remove_default_ports_from_uri(req.uri().clone());
             for regex in &self.allowed_non_matrix_regexes {
-                if regex.is_match(normalized_uri.as_str()) {
+                if regex.is_match(uri.as_str()) {
                     return self
                         .forward_request(
                             &mut req_ctx,

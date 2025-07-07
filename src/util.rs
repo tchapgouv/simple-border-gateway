@@ -6,9 +6,8 @@ use std::{
 };
 
 use bytes::Bytes;
-use http::{HeaderMap, Method, Request, StatusCode, Uri};
+use http::{uri::Scheme, HeaderMap, Method, Request, StatusCode, Uri};
 use log::{log, Level};
-use regex::Regex;
 use serde_json::{json, Value};
 use ttl_cache::TtlCache;
 
@@ -118,20 +117,31 @@ pub fn set_req_scheme_and_authority<B>(req: &mut http::Request<B>, scheme: &str,
     *req.uri_mut() = uri;
 }
 
-pub(crate) fn normalize_uri(uri: &http::Uri) -> String {
-    let uri_str = uri.to_string();
-    match fluent_uri::Uri::parse(uri_str.clone()) {
-        Ok(fluent_uri) => fluent_uri.normalize().to_string(),
-        Err(_) => uri_str,
+pub(crate) fn remove_default_https_port(host: &str) -> String {
+    if host.ends_with(":443") {
+        host.split_at(host.len() - 4).0.to_string()
+    } else {
+        host.to_string()
     }
 }
 
-#[allow(clippy::unwrap_used, reason = "lazy static regex")]
-static REMOVE_DEFAULT_PORTS_REGEX: std::sync::LazyLock<Regex> =
-    std::sync::LazyLock::new(|| Regex::new(r"(:443|:80)$").unwrap());
-
-pub(crate) fn remove_default_ports(host: &str) -> String {
-    REMOVE_DEFAULT_PORTS_REGEX.replace_all(host, "").to_string()
+#[allow(
+    clippy::unwrap_used,
+    reason = "we only remove default ports from a validated uri so no new untrusted input"
+)]
+pub(crate) fn remove_default_ports_from_uri(uri: http::Uri) -> String {
+    let mut parts = uri.into_parts();
+    if let Some(authority) = parts.authority.clone() {
+        let host = authority.host().to_string();
+        if let Some(port) = authority.port_u16() {
+            if port == 443 && parts.scheme == Some(Scheme::HTTPS)
+                || port == 80 && parts.scheme == Some(Scheme::HTTP)
+            {
+                parts.authority = Some(http::uri::Authority::from_maybe_shared(host).unwrap());
+            }
+        }
+    };
+    http::Uri::from_parts(parts).unwrap().to_string()
 }
 
 #[derive(Clone)]
@@ -149,7 +159,7 @@ impl NameResolver {
     }
 
     pub fn domain_to_server_name(&mut self, domain: &str) -> String {
-        let domain = remove_default_ports(domain);
+        let domain = remove_default_https_port(domain);
         self.domain_server_name_map
             .get(domain.as_str())
             .unwrap_or(&domain)
@@ -203,8 +213,8 @@ fn extract_origin_and_destination<B>(
     };
 
     (
-        remove_default_ports(origin.as_str()),
-        remove_default_ports(destination),
+        remove_default_https_port(origin.as_str()),
+        remove_default_https_port(destination),
     )
 }
 
