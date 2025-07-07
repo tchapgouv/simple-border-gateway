@@ -13,34 +13,31 @@ use hudsucker::{
     rcgen::{CertificateParams, KeyPair},
 };
 
-use crate::{
-    config::UpstreamProxyConfig,
-    util::{shutdown_signal, NameResolver},
-};
+use crate::util::{shutdown_signal, NameResolver};
 
 mod handlers;
 
 #[allow(clippy::too_many_arguments, reason = "parsed args from main")]
 pub async fn create_proxy(
     listening_addr: &str,
+    http_client: reqwest::Client,
     ca_priv_key_path: &str,
     ca_cert_path: &str,
     name_resolver: NameResolver,
     allowed_federation_domains: BTreeMap<String, String>,
     allowed_client_domains: BTreeMap<String, String>,
     allowed_external_domains_dangerous: Vec<String>,
-    upstream_proxy_config: Option<UpstreamProxyConfig>,
     _for_tests_only_mock_server_host: Option<String>,
 ) -> Result<(), anyhow::Error> {
     let proxy_builder = get_proxy_builder(listening_addr, ca_priv_key_path, ca_cert_path);
 
     let proxy = proxy_builder
         .with_http_handler(GatewayHandler::new(
+            http_client,
             name_resolver,
             allowed_federation_domains,
             allowed_client_domains,
             allowed_external_domains_dangerous,
-            upstream_proxy_config,
             _for_tests_only_mock_server_host,
         )?)
         .with_graceful_shutdown(shutdown_signal())

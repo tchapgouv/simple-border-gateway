@@ -1,16 +1,24 @@
 # Commented conf lines are the default values
 
-# listen_adress = "0.0.0.0:8000"
+[inbound_proxy]
+#listen_adress = "0.0.0.0:8000"
+additional_root_certs = [
+    "root.crt"
+]
 
 [outbound_proxy]
-# listen_adress = "0.0.0.0:3128"
+#listen_adress = "0.0.0.0:3128"
 
 ca_priv_key_path = "ca.pem"
 ca_cert_path = "ca.crt"
 
+additional_root_certs = [
+    "----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----"
+]
+
 [outbound_proxy.upstream_proxy]
 url = "https://127.0.0.1:3128"
-ca_pem = "==BEGIN CERTIFICATE==\n...\n==END CERTIFICATE=="
+
 
 allowed_non_matrix_regexes_dangerous = [
     "https://ntfy\\.sh/.*"

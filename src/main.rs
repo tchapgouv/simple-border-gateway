@@ -1,5 +1,5 @@
 use log::{debug, info};
-use simple_border_gateway::util::NameResolver;
+use simple_border_gateway::util::{create_http_client, NameResolver};
 
 use std::env;
 use std::str::FromStr;
@@ -75,32 +75,45 @@ async fn main() {
 
     let mut tasks = vec![];
 
-    let server_name_resolver_inbound = NameResolver::new(domain_server_name_map);
-    let server_name_resolver_outbound = server_name_resolver_inbound.clone();
-    tasks.push(tokio::spawn(async move {
-        inbound::create_proxy(
-            &config.listen_address,
-            server_name_resolver_inbound,
-            destination_base_urls,
-            public_key_map,
-        )
-        .await
-        .expect("Failed to create inbound proxy");
-    }));
+    let name_resolver = NameResolver::new(domain_server_name_map);
+
+    if let Some(inbound_config) = config.inbound_proxy {
+        let name_resolver = name_resolver.clone();
+        let http_client = create_http_client(inbound_config.additional_root_certs, None)
+            .expect("Failed to create inbound http client");
+        tasks.push(tokio::spawn(async move {
+            inbound::create_proxy(
+                &inbound_config.listen_address,
+                http_client,
+                name_resolver.clone(),
+                destination_base_urls,
+                public_key_map,
+            )
+            .await
+            .expect("Failed to create inbound proxy");
+        }));
+    }
 
     info!("inbound_proxy initialized");
 
-    if let Some(outbound_proxy) = config.outbound_proxy {
+    if let Some(outbound_config) = config.outbound_proxy {
+        let outbound_http_client = create_http_client(
+            outbound_config.additional_root_certs,
+            outbound_config.upstream_proxy,
+        )
+        .expect("Failed to create outbound http client");
+
+        let name_resolver = name_resolver.clone();
         tasks.push(tokio::spawn(async move {
             outbound::create_proxy(
-                &outbound_proxy.listen_address,
-                &outbound_proxy.ca_priv_key_path,
-                &outbound_proxy.ca_cert_path,
-                server_name_resolver_outbound,
+                &outbound_config.listen_address,
+                outbound_http_client,
+                &outbound_config.ca_priv_key_path,
+                &outbound_config.ca_cert_path,
+                name_resolver,
                 allowed_federation_domains,
                 allowed_client_domains,
-                outbound_proxy.allowed_non_matrix_regexes_dangerous,
-                outbound_proxy.upstream_proxy,
+                outbound_config.allowed_non_matrix_regexes_dangerous,
                 None,
             )
             .await

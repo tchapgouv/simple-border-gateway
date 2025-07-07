@@ -29,9 +29,19 @@ pub async fn shutdown_signal() {
         .expect("Failed to install CTRL+C signal handler");
 }
 
-pub(crate) fn create_http_client(
+fn deserialize_pem(path_or_content: &str) -> Result<reqwest::Certificate, anyhow::Error> {
+    let bytes = if path_or_content.starts_with("----") {
+        path_or_content.as_bytes().to_vec()
+    } else {
+        std::fs::read(path_or_content)?
+    };
+    Ok(reqwest::Certificate::from_pem(&bytes)?)
+}
+
+pub fn create_http_client(
+    additional_root_certs: Vec<String>,
     upstream_proxy_config: Option<UpstreamProxyConfig>,
-) -> Result<reqwest::Client, reqwest::Error> {
+) -> Result<reqwest::Client, anyhow::Error> {
     install_crypto_provider();
     let mut builder = reqwest::Client::builder().use_rustls_tls();
     if let Some(upstream_proxy_config) = upstream_proxy_config {
@@ -40,13 +50,12 @@ pub(crate) fn create_http_client(
             proxy_config = proxy_config.basic_auth(auth.username.as_str(), auth.password.as_str());
         }
         builder = builder.proxy(proxy_config);
-        if let Some(ca_pem) = upstream_proxy_config.ca_pem {
-            builder =
-                builder.add_root_certificate(reqwest::Certificate::from_pem(ca_pem.as_bytes())?);
-        }
-        // dns resolver dns overrides ?
     }
-    builder.build()
+    for cert in additional_root_certs {
+        builder = builder.add_root_certificate(deserialize_pem(&cert)?);
+    }
+    // dns resolver dns overrides ?
+    Ok(builder.build()?)
 }
 
 pub(crate) fn create_response<B: From<String>>(

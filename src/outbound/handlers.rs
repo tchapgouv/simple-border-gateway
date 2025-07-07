@@ -8,13 +8,12 @@ use regex::Regex;
 use hudsucker::{Body, HttpContext, HttpHandler, RequestOrResponse};
 
 use crate::{
-    config::UpstreamProxyConfig,
     matrix_spec::{
         Endpoint, CLIENT_WELLKNOWN_ENDPOINT, FEDERATION_ENDPOINTS, MEDIA_CLIENT_LEGACY_ENDPOINTS,
         SERVER_WELLKNOWN_ENDPOINT,
     },
     util::{
-        create_http_client, create_matrix_response, create_status_response, normalize_uri,
+        create_matrix_response, create_status_response, normalize_uri,
         set_req_scheme_and_authority, NameResolver, ReqContext,
     },
 };
@@ -69,14 +68,13 @@ pub(crate) struct GatewayHandler {
 
 impl GatewayHandler {
     pub(crate) fn new(
+        http_client: reqwest::Client,
         name_resolver: NameResolver,
         allowed_federation_domains: BTreeMap<String, String>,
         allowed_client_domains: BTreeMap<String, String>,
         allowed_non_matrix_regexes: Vec<String>,
-        upstream_proxy_config: Option<UpstreamProxyConfig>,
         _for_tests_only_mock_server_host: Option<String>,
     ) -> Result<Self, anyhow::Error> {
-        let http_client = create_http_client(upstream_proxy_config)?;
         let allowed_non_matrix_regexes = allowed_non_matrix_regexes
             .iter()
             .map(|regex| {

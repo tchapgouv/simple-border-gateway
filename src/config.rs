@@ -21,7 +21,6 @@ pub struct ExternalHomeserverConfig {
 pub struct UpstreamProxyConfig {
     pub url: String,
     pub auth: Option<UpstreamProxyAuth>,
-    pub ca_pem: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -32,14 +31,21 @@ pub struct UpstreamProxyAuth {
 
 #[derive(Deserialize, Serialize)]
 pub struct BorderGatewayConfig {
-    #[serde(default = "default_border_gateway_listen_address")]
-    pub listen_address: String,
     pub internal_homeservers: Vec<InternalHomeserverConfig>,
     pub external_homeservers: Vec<ExternalHomeserverConfig>,
+    pub inbound_proxy: Option<InboundProxyConfig>,
     pub outbound_proxy: Option<OutboundProxyConfig>,
 }
 
-fn default_border_gateway_listen_address() -> String {
+#[derive(Deserialize, Serialize)]
+pub struct InboundProxyConfig {
+    #[serde(default = "default_inbound_proxy_listen_address")]
+    pub listen_address: String,
+    #[serde(default)]
+    pub additional_root_certs: Vec<String>,
+}
+
+fn default_inbound_proxy_listen_address() -> String {
     "0.0.0.0:8000".to_string()
 }
 
@@ -47,11 +53,14 @@ fn default_border_gateway_listen_address() -> String {
 pub struct OutboundProxyConfig {
     #[serde(default = "default_outbound_proxy_listen_address")]
     pub listen_address: String,
+    #[serde(default)]
+    pub additional_root_certs: Vec<String>,
+    pub upstream_proxy: Option<UpstreamProxyConfig>,
+
     pub ca_priv_key_path: String,
     pub ca_cert_path: String,
     #[serde(default)]
     pub allowed_non_matrix_regexes_dangerous: Vec<String>,
-    pub upstream_proxy: Option<UpstreamProxyConfig>,
 }
 
 fn default_outbound_proxy_listen_address() -> String {

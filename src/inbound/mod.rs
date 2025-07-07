@@ -4,7 +4,7 @@ use router::create_router;
 use ruma::serde::Base64;
 use tokio::net::TcpListener;
 
-use crate::util::{create_http_client, shutdown_signal, NameResolver};
+use crate::util::{shutdown_signal, NameResolver};
 
 mod handlers;
 mod router;
@@ -19,12 +19,13 @@ pub(crate) struct GatewayState {
 
 pub async fn create_proxy(
     listening_addr: &str,
+    http_client: reqwest::Client,
     name_resolver: NameResolver,
     destination_base_urls: BTreeMap<String, String>,
     public_key_map: BTreeMap<String, BTreeMap<String, Base64>>,
 ) -> Result<(), anyhow::Error> {
     let state = GatewayState {
-        http_client: create_http_client(None)?,
+        http_client,
         name_resolver,
         destination_base_urls,
         public_key_map,
