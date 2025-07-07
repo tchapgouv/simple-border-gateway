@@ -108,8 +108,8 @@ async fn main() {
             outbound::create_proxy(
                 &outbound_config.listen_address,
                 outbound_http_client,
-                &outbound_config.ca_priv_key_path,
-                &outbound_config.ca_cert_path,
+                &outbound_config.ca_priv_key,
+                &outbound_config.ca_cert,
                 name_resolver,
                 allowed_federation_domains,
                 allowed_client_domains,

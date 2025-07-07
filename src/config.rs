@@ -57,8 +57,8 @@ pub struct OutboundProxyConfig {
     pub additional_root_certs: Vec<String>,
     pub upstream_proxy: Option<UpstreamProxyConfig>,
 
-    pub ca_priv_key_path: String,
-    pub ca_cert_path: String,
+    pub ca_priv_key: String,
+    pub ca_cert: String,
     #[serde(default)]
     pub allowed_non_matrix_regexes_dangerous: Vec<String>,
 }

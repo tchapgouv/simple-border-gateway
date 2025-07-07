@@ -1,11 +1,6 @@
-use std::{collections::BTreeMap, fs, future::Pending};
+use std::collections::BTreeMap;
 
 use handlers::GatewayHandler;
-use hudsucker::{
-    builder::{ProxyBuilder, WantsHandlers},
-    hyper_util::client::legacy::connect::Connect,
-    NoopHandler,
-};
 
 use hudsucker::Proxy;
 use hudsucker::{
@@ -13,7 +8,7 @@ use hudsucker::{
     rcgen::{CertificateParams, KeyPair},
 };
 
-use crate::util::{shutdown_signal, NameResolver};
+use crate::util::{read_pem, shutdown_signal, NameResolver};
 
 mod handlers;
 
@@ -21,17 +16,37 @@ mod handlers;
 pub async fn create_proxy(
     listening_addr: &str,
     http_client: reqwest::Client,
-    ca_priv_key_path: &str,
-    ca_cert_path: &str,
+    ca_priv_key: &str,
+    ca_cert: &str,
     name_resolver: NameResolver,
     allowed_federation_domains: BTreeMap<String, String>,
     allowed_client_domains: BTreeMap<String, String>,
     allowed_external_domains_dangerous: Vec<String>,
     _for_tests_only_mock_server_host: Option<String>,
 ) -> Result<(), anyhow::Error> {
-    let proxy_builder = get_proxy_builder(listening_addr, ca_priv_key_path, ca_cert_path);
+    let ca_private_key = read_pem(ca_priv_key)?;
+    let ca_cert = read_pem(ca_cert)?;
 
-    let proxy = proxy_builder
+    let key_pair = KeyPair::from_pem(ca_private_key.as_str())?;
+    let ca_cert = CertificateParams::from_ca_cert_pem(ca_cert.as_str())?.self_signed(&key_pair)?;
+
+    let ca = RcgenAuthority::new(
+        key_pair,
+        ca_cert,
+        1_000,
+        crate::util::crypto_provider::default_provider(),
+    );
+
+    let builder = Proxy::builder()
+        .with_addr(
+            listening_addr
+                .parse()
+                .expect("Failed to parse listening address"),
+        )
+        .with_ca(ca)
+        .with_rustls_client(crate::util::crypto_provider::default_provider());
+
+    let proxy = builder
         .with_http_handler(GatewayHandler::new(
             http_client,
             name_resolver,
@@ -44,39 +59,4 @@ pub async fn create_proxy(
         .build()?;
 
     Ok(proxy.start().await?)
-}
-
-pub(crate) fn get_proxy_builder(
-    listening_addr: &str,
-    ca_priv_key_path: &str,
-    ca_cert_path: &str,
-) -> ProxyBuilder<
-    WantsHandlers<RcgenAuthority, impl Connect + Clone, NoopHandler, NoopHandler, Pending<()>>,
-> {
-    let ca_private_key =
-        fs::read_to_string(ca_priv_key_path).expect("Failed to read CA private key file");
-    let ca_cert = fs::read_to_string(ca_cert_path).expect("Failed to read CA certificate file");
-
-    let key_pair =
-        KeyPair::from_pem(ca_private_key.as_str()).expect("Failed to parse CA private key");
-    let ca_cert = CertificateParams::from_ca_cert_pem(ca_cert.as_str())
-        .expect("Failed to parse CA certificate")
-        .self_signed(&key_pair)
-        .expect("Failed to sign CA certificate");
-
-    let ca = RcgenAuthority::new(
-        key_pair,
-        ca_cert,
-        1_000,
-        crate::util::crypto_provider::default_provider(),
-    );
-
-    Proxy::builder()
-        .with_addr(
-            listening_addr
-                .parse()
-                .expect("Failed to parse listening address"),
-        )
-        .with_ca(ca)
-        .with_rustls_client(crate::util::crypto_provider::default_provider())
 }
