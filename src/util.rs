@@ -209,7 +209,7 @@ fn extract_origin_and_destination<B>(
     } else if let Some(host) = req.headers().get("Host") {
         host.to_str().unwrap_or_default()
     } else {
-        ""
+        req.uri().host().unwrap_or_default()
     };
 
     (
