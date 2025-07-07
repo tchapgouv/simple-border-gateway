@@ -250,7 +250,7 @@ impl HttpHandler for GatewayHandler {
                         .forward_request(
                             &mut req_ctx,
                             req.into_body(),
-                            "200 - forward,destination uri matches regex",
+                            "200 - forward, destination uri matches regex",
                         )
                         .await;
                 }
