@@ -96,12 +96,12 @@ pub(crate) const FEDERATION_ENDPOINTS: [Endpoint; 36] = [
     // DEPRECATED
     Endpoint {
         path: "/_matrix/federation/v1/send_join/{roomId}/{eventId}",
-        method: Some(Method::POST),
+        method: Some(Method::PUT),
         auth_type: AuthType::CheckSignature,
     },
     Endpoint {
         path: "/_matrix/federation/v2/send_join/{roomId}/{eventId}",
-        method: Some(Method::POST),
+        method: Some(Method::PUT),
         auth_type: AuthType::CheckSignature,
     },
     // 11. Knocking upon a room

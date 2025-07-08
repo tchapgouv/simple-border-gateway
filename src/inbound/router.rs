@@ -23,6 +23,7 @@ pub(crate) fn create_router(state: GatewayState) -> Router {
             .on_response(trace::DefaultOnResponse::new().level(Level::TRACE)),
     );
 
+    // TODO: no logs for wrong method, refactor to handle that in the handler?
     for endpoint in FEDERATION_ENDPOINTS {
         r = match endpoint.auth_type {
             AuthType::Unauthenticated => r.route(
