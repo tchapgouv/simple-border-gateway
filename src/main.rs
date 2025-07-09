@@ -1,7 +1,9 @@
-use log::{debug, info};
+use clap::Parser;
+use log::{debug, info, LevelFilter};
 use simple_border_gateway::util::{create_http_client, NameResolver};
 
 use std::env;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::{collections::BTreeMap, fs};
 
@@ -9,13 +11,40 @@ use ruma::{serde::Base64, signatures::PublicKeyMap};
 use simple_border_gateway::config::BorderGatewayConfig;
 use simple_border_gateway::{inbound, outbound, util::install_crypto_provider};
 
+#[derive(Parser)]
+#[command(version, about, long_about = None)]
+struct Cli {
+    /// Log level, defaults to INFO
+    #[arg(short, long, value_name = "LEVEL")]
+    log_level: Option<LevelFilter>,
+
+    /// Only run the inbound proxy, config will be ignored
+    #[arg(short, long, default_value = "false")]
+    inbound_only: bool,
+
+    /// Only run the outbound proxy, config will be ignored
+    #[arg(short, long, default_value = "false")]
+    outbound_only: bool,
+
+    /// Sets a custom config file
+    #[arg(short, long, value_name = "FILE", default_value = "config.toml")]
+    config: PathBuf,
+}
+
 #[tokio::main]
 async fn main() {
+    let cli = Cli::parse();
     println!("Starting simple-border-gateway");
 
-    let app_log_level =
-        log::LevelFilter::from_str(env::var("LOG_LEVEL").unwrap_or_default().as_str())
-            .unwrap_or(log::LevelFilter::Info);
+    if cli.inbound_only && cli.outbound_only {
+        eprintln!("Cannot use --inbound-only and --outbound-only at the same time");
+        std::process::exit(1);
+    }
+
+    let app_log_level = cli.log_level.unwrap_or(
+        LevelFilter::from_str(env::var("LOG_LEVEL").unwrap_or_default().as_str())
+            .unwrap_or(LevelFilter::Info),
+    );
 
     let mut builder = env_logger::Builder::new();
     if app_log_level < log::LevelFilter::Debug {
@@ -33,7 +62,8 @@ async fn main() {
 
     debug!("Logging initialized");
 
-    let config_toml_str = fs::read_to_string("config.toml").expect("Failed to read config file");
+    let config_toml_str = fs::read_to_string(cli.config.clone())
+        .expect(format!("Failed to read config file: {}", cli.config.display()).as_str());
     let config: BorderGatewayConfig =
         toml::from_str(&config_toml_str).expect("Failed to deserialize config file");
 
@@ -78,48 +108,55 @@ async fn main() {
     let name_resolver = NameResolver::new(domain_server_name_map);
 
     if let Some(inbound_config) = config.inbound_proxy {
-        let name_resolver = name_resolver.clone();
-        let http_client = create_http_client(inbound_config.additional_root_certs, None)
-            .expect("Failed to create inbound http client");
-        tasks.push(tokio::spawn(async move {
-            inbound::create_proxy(
-                &inbound_config.listen_address,
-                http_client,
-                name_resolver.clone(),
-                destination_base_urls,
-                public_key_map,
-            )
-            .await
-            .expect("Failed to create inbound proxy");
-        }));
+        if cli.outbound_only {
+            info!("Inbound proxy is configured but --outbound-only is set, inbound proxy will not be started");
+        } else {
+            let name_resolver = name_resolver.clone();
+            let http_client = create_http_client(inbound_config.additional_root_certs, None)
+                .expect("Failed to create inbound http client");
+            tasks.push(tokio::spawn(async move {
+                inbound::create_proxy(
+                    &inbound_config.listen_address,
+                    http_client,
+                    name_resolver.clone(),
+                    destination_base_urls,
+                    public_key_map,
+                )
+                .await
+                .expect("Failed to create inbound proxy");
+            }));
+            info!("Inbound proxy initialized");
+        }
     }
 
-    info!("inbound_proxy initialized");
-
     if let Some(outbound_config) = config.outbound_proxy {
-        let outbound_http_client = create_http_client(
-            outbound_config.additional_root_certs,
-            outbound_config.upstream_proxy,
-        )
-        .expect("Failed to create outbound http client");
-
-        let name_resolver = name_resolver.clone();
-        tasks.push(tokio::spawn(async move {
-            outbound::create_proxy(
-                &outbound_config.listen_address,
-                outbound_http_client,
-                &outbound_config.ca_priv_key,
-                &outbound_config.ca_cert,
-                name_resolver,
-                allowed_federation_domains,
-                allowed_client_domains,
-                outbound_config.allowed_non_matrix_regexes_dangerous,
-                None,
+        if cli.outbound_only {
+            info!("Outbound proxy is configured but --inbound-only is set, outbound proxy will not be started");
+        } else {
+            let outbound_http_client = create_http_client(
+                outbound_config.additional_root_certs,
+                outbound_config.upstream_proxy,
             )
-            .await
-            .expect("Failed to create outbound proxy");
-        }));
-        info!("outbound_proxy initialized");
+            .expect("Failed to create outbound http client");
+
+            let name_resolver = name_resolver.clone();
+            tasks.push(tokio::spawn(async move {
+                outbound::create_proxy(
+                    &outbound_config.listen_address,
+                    outbound_http_client,
+                    &outbound_config.ca_priv_key,
+                    &outbound_config.ca_cert,
+                    name_resolver,
+                    allowed_federation_domains,
+                    allowed_client_domains,
+                    outbound_config.allowed_non_matrix_regexes_dangerous,
+                    None,
+                )
+                .await
+                .expect("Failed to create outbound proxy");
+            }));
+            info!("Outbound proxy initialized");
+        }
     }
 
     for task in tasks {
