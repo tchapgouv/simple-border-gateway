@@ -46,14 +46,15 @@ async fn forward_request(
     };
 
     let response = req_ctx
-        .forward_request(body.into_data_stream(), Some(dest_base_url))
+        .forward_request(
+            body.into_data_stream(),
+            Some(dest_base_url),
+            Some(success_log_text),
+        )
         .await;
 
     match convert_response(response) {
-        Ok(convert_res) => {
-            req_ctx.log(Level::Info, success_log_text);
-            convert_res
-        }
+        Ok(convert_res) => convert_res,
         Err(e) => {
             req_ctx.log(
                 Level::Warn,

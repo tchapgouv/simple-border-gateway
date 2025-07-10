@@ -104,13 +104,12 @@ impl GatewayHandler {
         body: Body,
         success_log_text: &str,
     ) -> RequestOrResponse {
-        let response = req_ctx.forward_request(body.into_data_stream(), None).await;
+        let response = req_ctx
+            .forward_request(body.into_data_stream(), None, Some(success_log_text))
+            .await;
 
         match convert_response(response) {
-            Ok(resp) => {
-                req_ctx.log(Level::Info, success_log_text);
-                resp.into()
-            }
+            Ok(resp) => resp.into(),
             Err(e) => {
                 req_ctx.log(
                     Level::Warn,

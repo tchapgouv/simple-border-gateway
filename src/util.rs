@@ -252,6 +252,7 @@ impl ReqContext {
         &mut self,
         body_stream: S,
         dest_base_url: Option<&str>,
+        success_log_text: Option<&str>,
     ) -> http::Response<reqwest::Body>
     where
         S: futures::stream::TryStream + Send + 'static,
@@ -272,7 +273,12 @@ impl ReqContext {
             .await;
 
         match http_res {
-            Ok(http_res) => http_res.into(),
+            Ok(http_res) => {
+                if let Some(success_log_text) = success_log_text {
+                    self.log(Level::Info, success_log_text);
+                }
+                http_res.into()
+            }
             Err(e) => {
                 self.log(Level::Warn, &format!("503 - error forwarding: {e}"));
                 create_status_response(StatusCode::BAD_GATEWAY)
