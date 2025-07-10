@@ -15,20 +15,20 @@ use simple_border_gateway::{inbound, outbound, util::install_crypto_provider};
 #[command(version, about, long_about = None)]
 struct Cli {
     /// Log level, defaults to INFO
-    #[arg(short, long, value_name = "LEVEL")]
+    #[arg(short = 'l', long, value_name = "LEVEL")]
     log_level: Option<LevelFilter>,
 
     /// Only run the inbound proxy, config will be ignored
-    #[arg(short, long, default_value = "false")]
+    #[arg(short = 'i', long, default_value = "false")]
     inbound_only: bool,
 
     /// Only run the outbound proxy, config will be ignored
-    #[arg(short, long, default_value = "false")]
+    #[arg(short = 'o', long, default_value = "false")]
     outbound_only: bool,
 
     /// Sets a custom config file
-    #[arg(short, long, value_name = "FILE", default_value = "config.toml")]
-    config: PathBuf,
+    #[arg(short = 'c', long, value_name = "FILE", default_value = "config.toml")]
+    config_file: PathBuf,
 }
 
 #[tokio::main]
@@ -61,9 +61,9 @@ async fn main() {
         .init();
 
     debug!("Logging initialized");
-    debug!("Reading config file {}", cli.config.display());
+    debug!("Reading config file {}", cli.config_file.display());
 
-    let config_toml_str = fs::read_to_string(cli.config).expect("Failed to read config file");
+    let config_toml_str = fs::read_to_string(cli.config_file).expect("Failed to read config file");
     let config: BorderGatewayConfig =
         toml::from_str(&config_toml_str).expect("Failed to deserialize config file");
 
