@@ -1,6 +1,11 @@
 use clap::Parser;
 use log::{debug, info, LevelFilter};
-use simple_border_gateway::util::{create_http_client, NameResolver};
+use simple_border_gateway::http_gateway::inbound::InboundGatewayBuilder;
+use simple_border_gateway::http_gateway::outbound::OutboundGatewayBuilder;
+use simple_border_gateway::http_gateway::util::{create_http_client, install_crypto_provider};
+use simple_border_gateway::inbound::InboundHandler;
+use simple_border_gateway::matrix::util::NameResolver;
+use simple_border_gateway::outbound::OutboundHandler;
 
 use std::env;
 use std::path::PathBuf;
@@ -9,7 +14,6 @@ use std::{collections::BTreeMap, fs};
 
 use ruma::{serde::Base64, signatures::PublicKeyMap};
 use simple_border_gateway::config::BorderGatewayConfig;
-use simple_border_gateway::{inbound, outbound, util::install_crypto_provider};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -74,11 +78,11 @@ async fn main() {
     debug!("Crypto provider installed");
 
     let mut domain_server_name_map = BTreeMap::new();
-    let mut destination_base_urls: BTreeMap<String, String> = BTreeMap::new();
+    let mut target_base_urls: BTreeMap<String, String> = BTreeMap::new();
 
     for hs in config.internal_homeservers {
         domain_server_name_map.insert(hs.federation_domain.clone(), hs.server_name.clone());
-        destination_base_urls.insert(hs.federation_domain, hs.destination_base_url);
+        target_base_urls.insert(hs.federation_domain, hs.target_base_url);
     }
 
     let mut allowed_federation_domains: BTreeMap<String, String> = BTreeMap::new();
@@ -111,17 +115,18 @@ async fn main() {
         if cli.outbound_only {
             info!("Inbound proxy is configured but --outbound-only is set, inbound proxy will not be started");
         } else {
-            let name_resolver = name_resolver.clone();
             let http_client = create_http_client(inbound_config.additional_root_certs, None)
                 .expect("Failed to create inbound http client");
+            let handler = InboundHandler::new(name_resolver.clone(), public_key_map);
+
             tasks.push(tokio::spawn(async move {
-                inbound::create_proxy(
-                    &inbound_config.listen_address,
-                    http_client,
-                    name_resolver.clone(),
-                    destination_base_urls,
-                    public_key_map,
+                InboundGatewayBuilder::new(
+                    inbound_config.listen_address.parse().unwrap(),
+                    target_base_urls,
+                    handler,
                 )
+                .with_http_client(http_client)
+                .build_and_run()
                 .await
                 .expect("Failed to create inbound proxy");
             }));
@@ -133,25 +138,28 @@ async fn main() {
         if cli.outbound_only {
             info!("Outbound proxy is configured but --inbound-only is set, outbound proxy will not be started");
         } else {
-            let outbound_http_client = create_http_client(
+            let http_client = create_http_client(
                 outbound_config.additional_root_certs,
                 outbound_config.upstream_proxy_url,
             )
             .expect("Failed to create outbound http client");
+            let handler = OutboundHandler::new(
+                name_resolver,
+                allowed_federation_domains,
+                allowed_client_domains,
+                outbound_config.allowed_non_matrix_regexes_dangerous,
+            )
+            .expect("Failed to create outbound handler");
 
-            let name_resolver = name_resolver.clone();
             tasks.push(tokio::spawn(async move {
-                outbound::create_proxy(
-                    &outbound_config.listen_address,
-                    outbound_http_client,
-                    &outbound_config.ca_priv_key,
-                    &outbound_config.ca_cert,
-                    name_resolver,
-                    allowed_federation_domains,
-                    allowed_client_domains,
-                    outbound_config.allowed_non_matrix_regexes_dangerous,
-                    None,
+                OutboundGatewayBuilder::new(
+                    outbound_config.listen_address.parse().unwrap(),
+                    outbound_config.ca_priv_key,
+                    outbound_config.ca_cert,
+                    handler,
                 )
+                .with_http_client(http_client)
+                .build_and_run()
                 .await
                 .expect("Failed to create outbound proxy");
             }));

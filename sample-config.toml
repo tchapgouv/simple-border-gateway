@@ -16,21 +16,20 @@ additional_root_certs = [
     "----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----"
 ]
 
-[outbound_proxy.upstream_proxy]
-url = "https://127.0.0.1:3128"
-
-
 allowed_non_matrix_regexes_dangerous = [
     "https://ntfy\\.sh/.*"
 ]
 
+[outbound_proxy.upstream_proxy]
+url = "https://127.0.0.1:3128"
+
 [[internal_homeservers]]
 server_name = "tout.im"
 federation_domain = "matrix.tout.im"
-destination_base_url = "http://localhost:8008"
+target_base_url = "http://localhost:8008"
 
 [[external_homeservers]]
 server_name = "matrix.org"
-federation_domain = "matrix-federation.matrix.org:443"
-client_domain = "matrix-client.matrix.org:443"
+federation_domain = "matrix-federation.matrix.org"
+client_domain = "matrix-client.matrix.org"
 verify_keys = { "ed25519:a_RXGa" = "l8Hft5qXKn1vfHrg3p4+W8gELQVo8N13JkluMfmn2sQ" }

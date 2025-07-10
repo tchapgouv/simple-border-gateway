@@ -6,12 +6,14 @@ use serde::{Deserialize, Serialize};
 pub struct InternalHomeserverConfig {
     pub server_name: String,
     pub federation_domain: String,
-    pub destination_base_url: String,
+    pub target_base_url: String,
 }
 
 #[derive(Deserialize, Serialize)]
 pub struct ExternalHomeserverConfig {
     pub server_name: String,
+    // Should domains be fetched dynamically from well-known files?
+    // A bit less secure, but more convenient?
     pub federation_domain: String,
     pub client_domain: String,
     pub verify_keys: BTreeMap<String, String>,

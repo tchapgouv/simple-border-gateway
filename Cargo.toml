@@ -40,6 +40,7 @@ tracing = "0.1"
 log = "0.4"
 env_logger = "0.11"
 anyhow = "1"
+thiserror = "2"
 ttl_cache = "0.5"
 clap = { version = "4", features = ["derive"] }
 
