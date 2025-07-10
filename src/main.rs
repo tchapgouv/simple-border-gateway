@@ -61,9 +61,9 @@ async fn main() {
         .init();
 
     debug!("Logging initialized");
+    debug!("Reading config file {}", cli.config.display());
 
-    let config_toml_str = fs::read_to_string(cli.config.clone())
-        .expect(format!("Failed to read config file: {}", cli.config.display()).as_str());
+    let config_toml_str = fs::read_to_string(cli.config).expect("Failed to read config file");
     let config: BorderGatewayConfig =
         toml::from_str(&config_toml_str).expect("Failed to deserialize config file");
 
