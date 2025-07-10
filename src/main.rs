@@ -135,7 +135,7 @@ async fn main() {
         } else {
             let outbound_http_client = create_http_client(
                 outbound_config.additional_root_certs,
-                outbound_config.upstream_proxy,
+                outbound_config.upstream_proxy_url,
             )
             .expect("Failed to create outbound http client");
 

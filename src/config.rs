@@ -18,12 +18,6 @@ pub struct ExternalHomeserverConfig {
 }
 
 #[derive(Deserialize, Serialize)]
-pub struct UpstreamProxyConfig {
-    pub url: String,
-    pub auth: Option<UpstreamProxyAuth>,
-}
-
-#[derive(Deserialize, Serialize)]
 pub struct UpstreamProxyAuth {
     pub username: String,
     pub password: String,
@@ -55,7 +49,7 @@ pub struct OutboundProxyConfig {
     pub listen_address: String,
     #[serde(default)]
     pub additional_root_certs: Vec<String>,
-    pub upstream_proxy: Option<UpstreamProxyConfig>,
+    pub upstream_proxy_url: Option<String>,
 
     pub ca_priv_key: String,
     pub ca_cert: String,

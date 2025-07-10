@@ -11,8 +11,6 @@ use log::{log, Level};
 use serde_json::{json, Value};
 use ttl_cache::TtlCache;
 
-use crate::config::UpstreamProxyConfig;
-
 #[cfg(feature = "aws_lc_rs")]
 pub use hudsucker::rustls::crypto::aws_lc_rs as crypto_provider;
 #[cfg(feature = "ring")]
@@ -39,16 +37,12 @@ pub(crate) fn read_pem(path_or_content: &str) -> Result<String, anyhow::Error> {
 
 pub fn create_http_client(
     additional_root_certs: Vec<String>,
-    upstream_proxy_config: Option<UpstreamProxyConfig>,
+    upstream_proxy_url: Option<String>,
 ) -> Result<reqwest::Client, anyhow::Error> {
     install_crypto_provider();
     let mut builder = reqwest::Client::builder().use_rustls_tls();
-    if let Some(upstream_proxy_config) = upstream_proxy_config {
-        let mut proxy_config = reqwest::Proxy::all(upstream_proxy_config.url)?;
-        if let Some(auth) = upstream_proxy_config.auth {
-            proxy_config = proxy_config.basic_auth(auth.username.as_str(), auth.password.as_str());
-        }
-        builder = builder.proxy(proxy_config);
+    if let Some(upstream_proxy_url) = upstream_proxy_url {
+        builder = builder.proxy(reqwest::Proxy::all(upstream_proxy_url)?);
     }
     for cert in additional_root_certs {
         builder = builder
