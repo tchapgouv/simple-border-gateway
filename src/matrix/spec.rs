@@ -24,7 +24,7 @@ pub(crate) struct Endpoint {
 }
 
 impl Endpoint {
-    pub(crate) const fn new(path: &'static str, method: Option<Method>) -> Self {
+    const fn new(path: &'static str, method: Option<Method>) -> Self {
         Self {
             path,
             method,

@@ -334,12 +334,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "async_once"
-version = "0.2.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ce4f10ea3abcd6617873bae9f91d1c5332b4a778bd9ce34d0cd517474c1de82"
-
-[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2993,7 +2987,6 @@ name = "simple-border-gateway"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async_once",
  "axum",
  "axum-test",
  "bytes",
@@ -3007,6 +3000,7 @@ dependencies = [
  "hudsucker",
  "hyper 1.6.0",
  "log",
+ "rand 0.9.2",
  "rcgen",
  "regex",
  "reqwest",

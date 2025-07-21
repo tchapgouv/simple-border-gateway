@@ -106,17 +106,3 @@ pub fn create_http_client(
     // dns resolver dns overrides ?
     Ok(builder.build()?)
 }
-
-// TODO only for tests
-pub fn set_req_scheme_and_authority<B>(req: &mut http::Request<B>, scheme: &str, authority: &str) {
-    let parts = req.uri().clone().into_parts();
-    let mut builder = http::uri::Builder::new()
-        .scheme(scheme)
-        .authority(authority);
-    if let Some(path_and_query) = parts.path_and_query {
-        builder = builder.path_and_query(path_and_query);
-    }
-    #[allow(clippy::unwrap_used, reason = "should never happen")]
-    let uri = builder.build().unwrap();
-    *req.uri_mut() = uri;
-}

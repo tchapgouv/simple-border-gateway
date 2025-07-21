@@ -60,7 +60,10 @@ toml = "0.9"
 axum-test = "17"
 httpmock = "0.7"
 tempfile = "3"
-async_once = "0.2"
+rand = "0.9"
+# lazy_static = "1"
+# async_once = "0.2"
+
 
 [features]
 default = ["aws_lc_rs"]
