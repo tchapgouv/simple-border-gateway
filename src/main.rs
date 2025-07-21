@@ -121,7 +121,10 @@ async fn main() {
 
             tasks.push(tokio::spawn(async move {
                 InboundGatewayBuilder::new(
-                    inbound_config.listen_address.parse().unwrap(),
+                    inbound_config
+                        .listen_address
+                        .parse()
+                        .expect("Failed to parse inbound listen address"),
                     target_base_urls,
                     handler,
                 )
@@ -153,7 +156,10 @@ async fn main() {
 
             tasks.push(tokio::spawn(async move {
                 OutboundGatewayBuilder::new(
-                    outbound_config.listen_address.parse().unwrap(),
+                    outbound_config
+                        .listen_address
+                        .parse()
+                        .expect("Failed to parse outbound listen address"),
                     outbound_config.ca_priv_key,
                     outbound_config.ca_cert,
                     handler,
