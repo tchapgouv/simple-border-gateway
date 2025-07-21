@@ -96,7 +96,10 @@ impl InboundHandler {
 
         match verify_signature(&self.public_key_map, &ctx.parts, x_matrix, &body) {
             Ok(_) => {
-                ctx.log(Level::Info, "forward, valid signature");
+                ctx.log(
+                    Level::Info,
+                    "forward, authorized server and valid signature",
+                );
                 Request::from_parts(ctx.parts, Body::from(body)).into()
             }
             Err(e) => {
