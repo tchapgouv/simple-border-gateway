@@ -97,30 +97,41 @@ impl<H: GatewayHandler> hudsucker::HttpHandler for HandlerAdapter<H> {
             return req.into();
         }
 
-        let resp = match convert_request(req) {
-            Ok(req) => {
-                let req_or_resp = self
-                    .handler
-                    .handle_request(req, GatewayDirection::Outbound, ctx.client_addr)
-                    .await;
-                match req_or_resp {
-                    RequestOrResponse::Request(req) => {
-                        match self.http_client.execute(req.try_into().unwrap()).await {
-                            Ok(resp) => resp.into(),
-                            Err(e) => {
-                                return self
-                                    .handle_gateway_error(ctx, GatewayError::Forward(e.to_string()))
-                                    .await
-                                    .into();
-                            }
-                        }
-                    }
-                    RequestOrResponse::Response(resp) => resp,
-                }
-            }
+        let req = match convert_request(req) {
+            Ok(req) => req,
             Err(e) => {
                 return self.handle_gateway_error(ctx, e).await.into();
             }
+        };
+
+        let req_or_resp = self
+            .handler
+            .handle_request(req, GatewayDirection::Outbound, ctx.client_addr)
+            .await;
+
+        let resp = match req_or_resp {
+            RequestOrResponse::Request(req) => {
+                let req = match reqwest::Request::try_from(req) {
+                    Ok(req) => req,
+                    Err(e) => {
+                        return self
+                            .handle_gateway_error(ctx, GatewayError::ConvertRequest(e.to_string()))
+                            .await
+                            .into();
+                    }
+                };
+
+                match self.http_client.execute(req).await {
+                    Ok(resp) => resp.into(),
+                    Err(e) => {
+                        return self
+                            .handle_gateway_error(ctx, GatewayError::Forward(e.to_string()))
+                            .await
+                            .into();
+                    }
+                }
+            }
+            RequestOrResponse::Response(resp) => resp,
         };
         match convert_response_to_hudsucker(resp) {
             Ok(resp) => resp,
