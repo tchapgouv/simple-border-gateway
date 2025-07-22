@@ -47,7 +47,7 @@ impl GatewayHandler for OutboundHandler {
                 EndpointType::Federation => {
                     if !self
                         .allowed_federation_domains
-                        .contains(&ctx.destination_server_name)
+                        .contains(&ctx.destination_host)
                     {
                         ctx.log(
                             Level::Warn,
@@ -58,20 +58,14 @@ impl GatewayHandler for OutboundHandler {
                     ctx.log(Level::Info, "forward, allowed federation request");
                 }
                 EndpointType::LegacyMedia => {
-                    if !self
-                        .allowed_client_domains
-                        .contains(&ctx.destination_server_name)
-                    {
+                    if !self.allowed_client_domains.contains(&ctx.destination_host) {
                         ctx.log(Level::Warn, "403 - forbidden, unauthorized client domain");
                         return create_matrix_response(StatusCode::FORBIDDEN, "M_FORBIDDEN").into();
                     }
                     ctx.log(Level::Info, "forward, allowed legacy media request");
                 }
                 EndpointType::WellKnown => {
-                    if !self
-                        .allowed_server_names
-                        .contains(&ctx.destination_server_name)
-                    {
+                    if !self.allowed_server_names.contains(&ctx.destination_host) {
                         ctx.log(Level::Warn, "403 - forbidden, unauthorized base domain");
                         return create_matrix_response(StatusCode::FORBIDDEN, "M_FORBIDDEN").into();
                     }
@@ -116,8 +110,8 @@ impl OutboundHandler {
         Ok(Self {
             name_resolver,
             allowed_server_names,
-            allowed_federation_domains: allowed_federation_domains.values().cloned().collect(),
-            allowed_client_domains: allowed_client_domains.values().cloned().collect(),
+            allowed_federation_domains: allowed_federation_domains.keys().cloned().collect(),
+            allowed_client_domains: allowed_client_domains.keys().cloned().collect(),
             allowed_non_matrix_regexes,
         })
     }

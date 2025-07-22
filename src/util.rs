@@ -76,6 +76,7 @@ pub(crate) struct RequestContext {
     pub(crate) parts: Parts,
     pub(crate) origin_server_name: String,
     pub(crate) destination_server_name: String,
+    pub(crate) destination_host: String,
     log_prefix: String,
 }
 
@@ -92,6 +93,7 @@ impl RequestContext {
             parts,
             origin_server_name: name_resolver.ip_to_server_name(&origin_ip),
             destination_server_name: name_resolver.domain_to_server_name(&destination_host),
+            destination_host,
             log_prefix: match direction {
                 GatewayDirection::Inbound => "IN ",
                 GatewayDirection::Outbound => "OUT",
