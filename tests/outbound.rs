@@ -1,201 +1,250 @@
-// use std::future::Future;
+use http::{Request, Response, StatusCode};
+use rand::Rng;
+use rcgen::{BasicConstraints, CertificateParams, IsCa, KeyPair};
+use reqwest::{Body, Proxy};
+use simple_border_gateway::http_gateway::outbound::OutboundGatewayBuilder;
+use simple_border_gateway::http_gateway::util::{create_http_client, install_crypto_provider};
+use simple_border_gateway::http_gateway::{
+    GatewayDirection, GatewayError, GatewayHandler, RequestOrResponse,
+};
+use simple_border_gateway::matrix::util::NameResolver;
+use simple_border_gateway::outbound::OutboundHandler;
+use std::collections::BTreeMap;
+use std::future::Future;
+use std::net::SocketAddr;
 
-// use http::{header::HOST, StatusCode};
-// use httpmock::MockServer;
-// use hudsucker::RequestOrResponse;
-// use rcgen::{Certificate, CertificateParams, IsCa, KeyPair};
-// use tempfile::TempDir;
-// use tokio::fs;
+fn set_req_scheme_and_authority<B>(req: &mut http::Request<B>, scheme: &str, authority: &str) {
+    let parts = req.uri().clone().into_parts();
+    let mut builder = http::uri::Builder::new()
+        .scheme(scheme)
+        .authority(authority);
+    if let Some(path_and_query) = parts.path_and_query {
+        builder = builder.path_and_query(path_and_query);
+    }
+    #[allow(clippy::unwrap_used, reason = "should never happen")]
+    let uri = builder.build().unwrap();
+    *req.uri_mut() = uri;
+}
 
-// use simple_border_gateway::{
-//     config::UpstreamProxyConfig,
-//     outbound,
-//     util::{install_crypto_provider, set_req_scheme_and_authority},
-// };
+#[derive(Clone)]
+struct HandlerWithMockServer {
+    original_handler: OutboundHandler,
+    mock_server_authority: String,
+}
 
-// pub(crate) fn get_well_known_endpoint_mock(mock_server: &'_ MockServer) -> httpmock::Mock<'_> {
-//     mock_server.mock(|when, then| {
-//         when.method("GET").path("/.well-known/matrix/server");
-//         then.status(200)
-//             .header("content-type", "application/json")
-//             .body("{\"m.server\": \"example.com:443\"}");
-//     })
-// }
+impl GatewayHandler for HandlerWithMockServer {
+    async fn handle_request(
+        &mut self,
+        req: Request<Body>,
+        _direction: GatewayDirection,
+        _client_addr: SocketAddr,
+    ) -> RequestOrResponse {
+        let req = self
+            .original_handler
+            .handle_request(req, _direction, _client_addr)
+            .await;
+        if let RequestOrResponse::Request(mut req) = req {
+            set_req_scheme_and_authority(&mut req, "http", &self.mock_server_authority);
+            req.into()
+        } else {
+            req
+        }
+    }
 
-// pub(crate) async fn verify_well_known_response(response: reqwest::Response) {
-//     assert_eq!(response.status(), StatusCode::OK);
-//     let body = response.text().await.unwrap();
-//     assert_eq!(body, "{\"m.server\": \"example.com:443\"}");
-// }
+    fn handle_response(
+        &mut self,
+        resp: Response<Body>,
+        _direction: GatewayDirection,
+    ) -> impl Future<Output = Response<Body>> + Send {
+        self.original_handler.handle_response(resp, _direction)
+    }
 
-// fn generate_self_signed_ca() -> (KeyPair, Certificate) {
-//     let mut params = CertificateParams::new(vec!["Test Root CA".to_string()]).unwrap();
-//     params.is_ca = IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
-//     let keypair = KeyPair::generate().unwrap();
-//     let cert = params.self_signed(&keypair).unwrap();
-//     (keypair, cert)
-// }
+    fn handle_error(
+        &mut self,
+        err: GatewayError,
+        _direction: GatewayDirection,
+    ) -> impl Future<Output = Response<Body>> + Send {
+        self.original_handler.handle_error(err, _direction)
+    }
+}
 
-// async fn create_outbound_proxy_and_client(
-//     temp_dir: &TempDir,
-//     port: u16,
-//     mock_server_host: Option<String>,
-//     upstream_proxy_config: Option<UpstreamProxyConfig>,
-// ) -> reqwest::Client {
-//     install_crypto_provider();
+async fn setup_mock_gateway(
+    upstream_proxy_url: Option<String>,
+) -> (httpmock::MockServer, reqwest::Client) {
+    // env_logger::builder()
+    //     .filter_level(log::LevelFilter::Info)
+    //     .target(env_logger::Target::Stdout)
+    //     .format_timestamp_micros()
+    //     .init();
 
-//     let (ca_keypair, ca_cert) = generate_self_signed_ca();
+    install_crypto_provider();
 
-//     let ca_cert_path = temp_dir.path().join("ca.crt");
-//     let ca_key_path = temp_dir.path().join("ca.key");
+    let mock_server = httpmock::MockServer::start();
 
-//     fs::write(&ca_cert_path, ca_cert.pem()).await.unwrap();
-//     fs::write(&ca_key_path, ca_keypair.serialize_pem())
-//         .await
-//         .unwrap();
+    let original_handler = OutboundHandler::new(
+        NameResolver::new(BTreeMap::new()),
+        BTreeMap::from([(
+            "federation.target.org".to_string(),
+            "target.org".to_string(),
+        )]),
+        BTreeMap::from([("matrix.target.org".to_string(), "target.org".to_string())]),
+        vec!["https://matrix\\.org/_matrix/push/v1/notify".to_string()],
+    )
+    .expect("Failed to create outbound handler");
 
-//     let allowed_servernames = vec!["example.com".to_string()];
-//     let allowed_federation_domains = vec!["fed.example.com".to_string()];
-//     let allowed_client_domains = vec!["client.example.com".to_string()];
-//     let allowed_external_domains = vec![];
+    let handler = HandlerWithMockServer {
+        original_handler,
+        mock_server_authority: format!("localhost:{}", mock_server.port()),
+    };
 
-//     tokio::spawn(async move {
-//         outbound::create_proxy(
-//             format!("127.0.0.1:{}", port).as_str(),
-//             ca_key_path.to_str().unwrap(),
-//             ca_cert_path.to_str().unwrap(),
-//             allowed_servernames,
-//             allowed_federation_domains,
-//             allowed_client_domains,
-//             allowed_external_domains,
-//             simple_border_gateway::util::shutdown_signal(),
-//             upstream_proxy_config,
-//             mock_server_host,
-//         )
-//         .await
-//         .expect("Failed to create outbound proxy");
-//     });
+    let ca_key_pair = KeyPair::generate().unwrap();
+    let mut ca_params = CertificateParams::default();
+    ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+    let ca_cert = ca_params.self_signed(&ca_key_pair).unwrap();
 
-//     let client = reqwest::Client::builder()
-//         .proxy(reqwest::Proxy::all(format!("http://127.0.0.1:{}", port)).unwrap())
-//         .add_root_certificate(reqwest::Certificate::from_pem(ca_cert.pem().as_bytes()).unwrap())
-//         .danger_accept_invalid_certs(true)
-//         .build()
-//         .unwrap();
+    let port = rand::rng().random_range(1024..65535);
 
-//     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    let ca_cert_pem = ca_cert.pem();
 
-//     client
-// }
+    let mut gateway_builder = OutboundGatewayBuilder::new(
+        format!("127.0.0.1:{}", port).parse().unwrap(),
+        ca_key_pair.serialize_pem(),
+        ca_cert.pem(),
+        handler,
+    );
 
-// static OUTBOUND_PROXY_PORT_BASE: u16 = 9000;
+    if let Some(upstream_proxy_url) = upstream_proxy_url {
+        gateway_builder = gateway_builder
+            .with_http_client(create_http_client(vec![], Some(upstream_proxy_url)).unwrap());
+    }
 
-// mod tests {
-//     use super::*;
+    tokio::spawn(async move {
+        gateway_builder
+            .build_and_run()
+            .await
+            .expect("Failed to create outbound proxy");
+    });
 
-//     #[derive(Clone)]
-//     struct MockHudsuckerHandler {
-//         mock_server_host: String,
-//     }
+    let proxied_client = reqwest::Client::builder()
+        .proxy(Proxy::all(format!("http://localhost:{}", port)).unwrap())
+        .add_root_certificate(reqwest::Certificate::from_pem(ca_cert_pem.as_bytes()).unwrap())
+        .build()
+        .unwrap();
 
-//     impl MockHudsuckerHandler {
-//         fn new(mock_server_host: String) -> Self {
-//             Self { mock_server_host }
-//         }
-//     }
-//     impl hudsucker::HttpHandler for MockHudsuckerHandler {
-//         fn handle_request(
-//             &mut self,
-//             _ctx: &hudsucker::HttpContext,
-//             mut _req: http::Request<hudsucker::Body>,
-//         ) -> impl Future<Output = RequestOrResponse> + Send {
-//             set_req_scheme_and_authority(&mut _req, "http", &self.mock_server_host);
-//             Box::pin(async { hudsucker::RequestOrResponse::Request(_req) })
-//         }
-//     }
+    (mock_server, proxied_client)
+}
 
-//     #[tokio::test]
-//     async fn test_well_known_endpoint() {
-//         let temp_dir = tempfile::tempdir().unwrap();
+#[tokio::test]
+async fn test_invalid_endpoint() {
+    let (_, client) = setup_mock_gateway(None).await;
+    let response = client
+        .get("https://federation.target.org/_matrix/federation/v1/invalid")
+        .send()
+        .await
+        .unwrap();
 
-//         let mock_server = MockServer::start();
-//         let mock_server_host = mock_server.address().to_string();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
 
-//         let client = create_outbound_proxy_and_client(
-//             &temp_dir,
-//             OUTBOUND_PROXY_PORT_BASE,
-//             Some(mock_server_host),
-//             None,
-//         )
-//         .await;
+#[tokio::test]
+async fn test_valid_federation_endpoint() {
+    let (mock_server, client) = setup_mock_gateway(None).await;
 
-//         let mock = get_well_known_endpoint_mock(&mock_server);
+    let mut mock = mock_server.mock(|when, then| {
+        when.method("GET")
+            .path("/_matrix/federation/v1/query/profile");
+        then.status(200);
+    });
 
-//         let response = client
-//             .get("https://example.com/.well-known/matrix/server")
-//             .header(HOST, "example.com")
-//             .send()
-//             .await
-//             .unwrap();
-//         mock.assert();
+    let response = client
+        .get("https://federation.target.org/_matrix/federation/v1/query/profile")
+        .send()
+        .await
+        .unwrap();
 
-//         verify_well_known_response(response).await;
-//     }
+    assert_eq!(response.status(), StatusCode::OK);
+    mock.assert();
 
-//     #[tokio::test]
-//     async fn test_upstream_proxy_support() {
-//         let mock_server = MockServer::start();
-//         let mock_server_host = mock_server.address().to_string();
+    mock.delete();
+}
 
-//         let mock = get_well_known_endpoint_mock(&mock_server);
+#[tokio::test]
+async fn test_unauthorized_federation_domain() {
+    let (_, client) = setup_mock_gateway(None).await;
 
-//         let (upstream_proxy_keypair, upstream_proxy_ca_cert) = generate_self_signed_ca();
-//         let upstream_proxy_ca_pem = upstream_proxy_ca_cert.pem();
+    let response = client
+        .get("https://federation.unauthorized.org/_matrix/federation/v1/query/profile")
+        .send()
+        .await
+        .unwrap();
 
-//         let ca = hudsucker::certificate_authority::RcgenAuthority::new(
-//             upstream_proxy_keypair,
-//             upstream_proxy_ca_cert,
-//             1_000,
-//             simple_border_gateway::util::crypto_provider::default_provider(),
-//         );
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
 
-//         let upstream_proxy = hudsucker::Proxy::builder()
-//             .with_addr("127.0.0.1:3128".parse().unwrap())
-//             .with_ca(ca)
-//             .with_rustls_client(simple_border_gateway::util::crypto_provider::default_provider())
-//             .with_http_handler(MockHudsuckerHandler::new(mock_server_host))
-//             .build()
-//             .unwrap();
+#[tokio::test]
+async fn test_unauthorized_client_domain() {
+    let (_, client) = setup_mock_gateway(None).await;
 
-//         let upstream_proxy_handle = tokio::spawn(async move {
-//             upstream_proxy.start().await.unwrap();
-//         });
+    let response = client
+        .get("https://matrix.unauthorized.org/_matrix/media/v3/download/test.org/mediaId")
+        .send()
+        .await
+        .unwrap();
 
-//         let temp_dir = tempfile::tempdir().unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
 
-//         let client = create_outbound_proxy_and_client(
-//             &temp_dir,
-//             OUTBOUND_PROXY_PORT_BASE + 1,
-//             Some("example.com".to_string()),
-//             Some(UpstreamProxyConfig {
-//                 url: "http://127.0.0.1:3128".to_string(),
-//                 ca_pem: Some(upstream_proxy_ca_pem),
-//                 auth: None,
-//             }),
-//         )
-//         .await;
+#[tokio::test]
+async fn test_valid_well_known_endpoint() {
+    let (mock_server, client) = setup_mock_gateway(None).await;
 
-//         let response = client
-//             .get("https://example.com/.well-known/matrix/server")
-//             .header(HOST, "example.com")
-//             .send()
-//             .await
-//             .unwrap();
+    let mut mock = mock_server.mock(|when, then| {
+        when.method("GET").path("/.well-known/matrix/server");
+        then.status(200);
+    });
 
-//         mock.assert();
+    let response = client
+        .get("https://target.org/.well-known/matrix/server")
+        .send()
+        .await
+        .unwrap();
 
-//         verify_well_known_response(response).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    mock.assert();
 
-//         upstream_proxy_handle.abort();
-//     }
-// }
+    mock.delete();
+}
+
+#[tokio::test]
+async fn test_unauthorized_well_known_domain() {
+    let (_, client) = setup_mock_gateway(None).await;
+
+    let response = client
+        .get("https://unauthorized.org/.well-known/matrix/server")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_allowed_non_matrix_regex() {
+    let (mock_server, client) = setup_mock_gateway(None).await;
+
+    let mut mock = mock_server.mock(|when, then| {
+        when.method("GET").path("/_matrix/push/v1/notify");
+        then.status(200);
+    });
+
+    let response = client
+        .get("https://matrix.org/_matrix/push/v1/notify")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    mock.assert();
+
+    mock.delete();
+}
