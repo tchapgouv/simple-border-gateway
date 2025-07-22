@@ -1,6 +1,6 @@
 use http::{Request, Response, StatusCode};
 use rand::Rng;
-use rcgen::{BasicConstraints, CertificateParams, IsCa, KeyPair};
+use rcgen::{BasicConstraints, Certificate, CertificateParams, IsCa, KeyPair};
 use reqwest::{Body, Proxy};
 use simple_border_gateway::http_gateway::outbound::OutboundGatewayBuilder;
 use simple_border_gateway::http_gateway::util::{create_http_client, install_crypto_provider};
@@ -12,6 +12,14 @@ use simple_border_gateway::outbound::OutboundHandler;
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::net::SocketAddr;
+
+pub fn generate_self_signed_ca() -> (KeyPair, Certificate) {
+    let mut params = CertificateParams::default();
+    params.is_ca = IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+    let keypair = KeyPair::generate().unwrap();
+    let cert = params.self_signed(&keypair).unwrap();
+    (keypair, cert)
+}
 
 fn set_req_scheme_and_authority<B>(req: &mut http::Request<B>, scheme: &str, authority: &str) {
     let parts = req.uri().clone().into_parts();
@@ -97,10 +105,7 @@ async fn setup_mock_gateway(
         mock_server_authority: format!("localhost:{}", mock_server.port()),
     };
 
-    let ca_key_pair = KeyPair::generate().unwrap();
-    let mut ca_params = CertificateParams::default();
-    ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
-    let ca_cert = ca_params.self_signed(&ca_key_pair).unwrap();
+    let (ca_key_pair, ca_cert) = generate_self_signed_ca();
 
     let port = rand::rng().random_range(1024..65535);
 
@@ -239,6 +244,73 @@ async fn test_allowed_non_matrix_regex() {
 
     let response = client
         .get("https://matrix.org/_matrix/push/v1/notify")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    mock.assert();
+
+    mock.delete();
+}
+
+#[derive(Clone)]
+struct MockHudsuckerHandler {
+    mock_server_host: String,
+}
+
+impl MockHudsuckerHandler {
+    fn new(mock_server_host: String) -> Self {
+        Self { mock_server_host }
+    }
+}
+impl hudsucker::HttpHandler for MockHudsuckerHandler {
+    fn handle_request(
+        &mut self,
+        _ctx: &hudsucker::HttpContext,
+        mut _req: http::Request<hudsucker::Body>,
+    ) -> impl Future<Output = hudsucker::RequestOrResponse> + Send {
+        set_req_scheme_and_authority(&mut _req, "http", &self.mock_server_host);
+        Box::pin(async { hudsucker::RequestOrResponse::Request(_req) })
+    }
+}
+
+#[tokio::test]
+async fn test_valid_endpoint_with_upstream_proxy() {
+    let (upstream_proxy_keypair, upstream_proxy_ca_cert) = generate_self_signed_ca();
+    let upstream_proxy_ca_pem = upstream_proxy_ca_cert.pem();
+
+    let ca = hudsucker::certificate_authority::RcgenAuthority::new(
+        upstream_proxy_keypair,
+        upstream_proxy_ca_cert,
+        1_000,
+        simple_border_gateway::http_gateway::util::crypto_provider::default_provider(),
+    );
+
+    let upstream_proxy = hudsucker::Proxy::builder()
+        .with_addr("127.0.0.1:3128".parse().unwrap())
+        .with_ca(ca)
+        .with_rustls_client(
+            simple_border_gateway::http_gateway::util::crypto_provider::default_provider(),
+        )
+        .with_http_handler(MockHudsuckerHandler::new(mock_server_host))
+        .build()
+        .unwrap();
+
+    let upstream_proxy_handle = tokio::spawn(async move {
+        upstream_proxy.start().await.unwrap();
+    });
+
+    let (mock_server, client) = setup_mock_gateway(None).await;
+
+    let mut mock = mock_server.mock(|when, then| {
+        when.method("GET")
+            .path("/_matrix/federation/v1/query/profile");
+        then.status(200);
+    });
+
+    let response = client
+        .get("https://federation.target.org/_matrix/federation/v1/query/profile")
         .send()
         .await
         .unwrap();
