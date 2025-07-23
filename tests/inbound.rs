@@ -1,5 +1,6 @@
 use http::StatusCode;
 use rand::Rng;
+use reqwest::Body;
 use ruma::serde::Base64;
 use ruma::signatures::{sign_json, Ed25519KeyPair};
 use ruma::CanonicalJsonValue;
@@ -23,7 +24,6 @@ async fn setup_mock_gateway() -> (httpmock::MockServer, u32, Ed25519KeyPair) {
 
     let public_key = keypair.public_key().to_vec();
     let key_id = format!("ed25519:{}", keypair.version());
-    println!("Key ID: {}", key_id);
 
     let mock_server = httpmock::MockServer::start();
 
@@ -312,4 +312,44 @@ async fn test_authenticated_endpoint_without_auth_header() {
     let status = response.status();
 
     assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn test_authenticated_endpoint_with_non_utf8_body() {
+    let (_, port, keypair) = setup_mock_gateway().await;
+    let key_id = format!("ed25519:{}", keypair.version());
+
+    let method = "PUT";
+    let path = "/_matrix/federation/v1/send/1234";
+    let origin_name = "origin.org";
+    let destination_name = "target.org";
+
+    let signature = sign_request(
+        &key_id,
+        &keypair,
+        method,
+        path,
+        origin_name,
+        destination_name,
+    );
+
+    let auth_header = format!(
+        "X-Matrix origin=\"{}\",destination=\"{}\",key=\"{}\",sig=\"{}\"",
+        origin_name, destination_name, key_id, signature
+    );
+
+    let response = reqwest::Client::new()
+        .request(
+            method.parse().unwrap(),
+            format!("http://localhost:{}{}", port, path),
+        )
+        .header("X-Forwarded-Host", destination_name)
+        .header("Authorization", auth_header.clone())
+        // Invalid UTF-8 code point
+        .body(Body::from(vec![255]))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }

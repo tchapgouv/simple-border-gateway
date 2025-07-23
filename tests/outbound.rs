@@ -147,7 +147,7 @@ async fn test_invalid_endpoint() {
 }
 
 #[tokio::test]
-async fn test_valid_federation_endpoint() {
+async fn test_valid_federation_request() {
     let (mock_server, client) = setup_mock_gateway(None).await;
 
     let mut mock = mock_server.mock(|when, then| {
@@ -169,7 +169,7 @@ async fn test_valid_federation_endpoint() {
 }
 
 #[tokio::test]
-async fn test_unauthorized_federation_domain() {
+async fn test_unauthorized_federation_request() {
     let (_, client) = setup_mock_gateway(None).await;
 
     let response = client
@@ -182,7 +182,29 @@ async fn test_unauthorized_federation_domain() {
 }
 
 #[tokio::test]
-async fn test_unauthorized_client_domain() {
+async fn test_valid_legacy_media_request() {
+    let (mock_server, client) = setup_mock_gateway(None).await;
+
+    let mut mock = mock_server.mock(|when, then| {
+        when.method("GET")
+            .path("/_matrix/media/v3/download/test.org/mediaId");
+        then.status(200);
+    });
+
+    let response = client
+        .get("https://matrix.target.org/_matrix/media/v3/download/test.org/mediaId")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    mock.assert();
+
+    mock.delete();
+}
+
+#[tokio::test]
+async fn test_unauthorized_legacy_media_request() {
     let (_, client) = setup_mock_gateway(None).await;
 
     let response = client
@@ -195,7 +217,7 @@ async fn test_unauthorized_client_domain() {
 }
 
 #[tokio::test]
-async fn test_valid_well_known_endpoint() {
+async fn test_valid_well_known_request() {
     let (mock_server, client) = setup_mock_gateway(None).await;
 
     let mut mock = mock_server.mock(|when, then| {
@@ -216,7 +238,7 @@ async fn test_valid_well_known_endpoint() {
 }
 
 #[tokio::test]
-async fn test_unauthorized_well_known_domain() {
+async fn test_unauthorized_well_known_request() {
     let (_, client) = setup_mock_gateway(None).await;
 
     let response = client
