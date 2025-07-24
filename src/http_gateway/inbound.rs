@@ -95,7 +95,6 @@ async fn inbound_handler<H: GatewayHandler>(
     ConnectInfo(socket_addr): ConnectInfo<SocketAddr>,
     req: http::Request<axum::body::Body>,
 ) -> http::Response<reqwest::Body> {
-    // TODO handle destination base urls
     let req = match convert_request(req) {
         Ok(req) => req,
         Err(e) => {
@@ -156,7 +155,7 @@ async fn forward_request<H: GatewayHandler>(
                 return state
                     .handler
                     .handle_error(
-                        GatewayError::Forward(format!("{e:#?}")),
+                        GatewayError::Forward(Box::new(e)),
                         GatewayDirection::Inbound,
                     )
                     .await

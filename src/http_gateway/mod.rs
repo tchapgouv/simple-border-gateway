@@ -2,6 +2,7 @@ pub mod inbound;
 pub mod outbound;
 pub mod util;
 
+use std::error::Error as StdError;
 use std::{future::Future, net::SocketAddr};
 
 use http::{Request, Response, StatusCode};
@@ -18,8 +19,8 @@ pub enum GatewayError {
     ConvertRequest(String),
     #[error("Failed to convert response: {0}")]
     ConvertResponse(String),
-    #[error("Failed to forward request: {0}")]
-    Forward(String),
+    #[error(transparent)]
+    Forward(#[from] Box<dyn StdError + Send + Sync>),
     #[error("Destination not found for host {0}")]
     DestinationNotFound(String),
 }
@@ -82,6 +83,9 @@ pub trait GatewayHandler: Clone + Send + Sync + 'static {
     ) -> impl Future<Output = Response<Body>> + Send {
         async move {
             error!("{err}");
+            if let Some(source) = err.source() {
+                error!("{source:#?}");
+            }
             create_status_response(StatusCode::BAD_GATEWAY)
         }
     }

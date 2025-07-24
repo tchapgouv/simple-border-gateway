@@ -128,7 +128,7 @@ impl<H: GatewayHandler> hudsucker::HttpHandler for HandlerAdapter<H> {
                     Ok(resp) => resp.into(),
                     Err(e) => {
                         return self
-                            .handle_gateway_error(ctx, GatewayError::Forward(format!("{e:#?}")))
+                            .handle_gateway_error(ctx, GatewayError::Forward(Box::new(e)))
                             .await
                             .into();
                     }
@@ -167,7 +167,7 @@ impl<H: GatewayHandler> hudsucker::HttpHandler for HandlerAdapter<H> {
         _ctx: &hudsucker::HttpContext,
         err: hudsucker::hyper_util::client::legacy::Error,
     ) -> http::Response<hudsucker::Body> {
-        self.handle_gateway_error(_ctx, GatewayError::Forward(format!("{err:#?}")))
+        self.handle_gateway_error(_ctx, GatewayError::Forward(Box::new(err)))
             .await
     }
 }
