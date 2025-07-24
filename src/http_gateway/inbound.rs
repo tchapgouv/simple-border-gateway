@@ -142,30 +142,32 @@ async fn forward_request<H: GatewayHandler>(
         parts.uri.path_and_query().map_or("", |p| p.as_str())
     );
 
-    match state
+    let req = match state
         .http_client
         .request(parts.method.clone(), url)
         .headers(parts.headers.clone())
         .body(body)
         .build()
     {
-        Ok(req) => match state.http_client.execute(req).await {
-            Ok(resp) => resp.into(),
-            Err(e) => {
-                return state
-                    .handler
-                    .handle_error(
-                        GatewayError::Forward(Box::new(e)),
-                        GatewayDirection::Inbound,
-                    )
-                    .await
-            }
-        },
+        Ok(req) => req,
         Err(e) => {
             return state
                 .handler
                 .handle_error(
-                    GatewayError::ConvertRequest(format!("{e:#?}")),
+                    GatewayError::ConvertRequest(Box::new(e)),
+                    GatewayDirection::Inbound,
+                )
+                .await
+        }
+    };
+
+    match state.http_client.execute(req).await {
+        Ok(resp) => resp.into(),
+        Err(e) => {
+            return state
+                .handler
+                .handle_error(
+                    GatewayError::Forward(Box::new(e)),
                     GatewayDirection::Inbound,
                 )
                 .await
@@ -185,5 +187,5 @@ fn convert_request(
         .body(reqwest::Body::wrap_stream(
             req.into_body().into_data_stream(),
         ))
-        .map_err(|e| GatewayError::ConvertRequest(format!("{e:#?}")))
+        .map_err(|e| GatewayError::ConvertRequest(Box::new(e)))
 }

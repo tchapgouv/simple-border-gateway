@@ -11,16 +11,18 @@ use reqwest::Body;
 
 use crate::http_gateway::util::create_status_response;
 
+type BoxedStdError = Box<dyn StdError + Send + Sync>;
+
 #[derive(Debug, thiserror::Error)]
 pub enum GatewayError {
     #[error("Failed to create gateway: {0}")]
-    CreateGateway(String),
+    CreateGateway(#[source] BoxedStdError),
     #[error("Failed to convert request: {0}")]
-    ConvertRequest(String),
+    ConvertRequest(#[source] BoxedStdError),
     #[error("Failed to convert response: {0}")]
-    ConvertResponse(String),
+    ConvertResponse(#[source] BoxedStdError),
     #[error("Failed to forward request: {0}")]
-    Forward(#[from] Box<dyn StdError + Send + Sync>),
+    Forward(#[source] BoxedStdError),
     #[error("Destination not found for host {0}")]
     DestinationNotFound(String),
 }

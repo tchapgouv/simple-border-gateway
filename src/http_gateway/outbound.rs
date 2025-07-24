@@ -115,10 +115,7 @@ impl<H: GatewayHandler> hudsucker::HttpHandler for HandlerAdapter<H> {
                     Ok(req) => req,
                     Err(e) => {
                         return self
-                            .handle_gateway_error(
-                                ctx,
-                                GatewayError::ConvertRequest(format!("{e:#?}")),
-                            )
+                            .handle_gateway_error(ctx, GatewayError::ConvertRequest(Box::new(e)))
                             .await
                             .into();
                     }
@@ -203,7 +200,7 @@ fn convert_request(
 
     builder
         .body(reqwest::Body::wrap_stream(body.into_data_stream()))
-        .map_err(|e| GatewayError::ConvertRequest(format!("{e:#?}")))
+        .map_err(|e| GatewayError::ConvertRequest(Box::new(e)))
 }
 
 fn convert_response_to_hudsucker(
@@ -236,5 +233,5 @@ fn convert_response<B1, B2>(
 
     builder
         .body(convert_body(body))
-        .map_err(|e| GatewayError::ConvertResponse(format!("{e:#?}")))
+        .map_err(|e| GatewayError::ConvertResponse(Box::new(e)))
 }
