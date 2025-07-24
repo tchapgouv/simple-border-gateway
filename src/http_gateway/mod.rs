@@ -19,7 +19,7 @@ pub enum GatewayError {
     ConvertRequest(String),
     #[error("Failed to convert response: {0}")]
     ConvertResponse(String),
-    #[error(transparent)]
+    #[error("Failed to forward request: {0}")]
     Forward(#[from] Box<dyn StdError + Send + Sync>),
     #[error("Destination not found for host {0}")]
     DestinationNotFound(String),
@@ -82,10 +82,7 @@ pub trait GatewayHandler: Clone + Send + Sync + 'static {
         _direction: GatewayDirection,
     ) -> impl Future<Output = Response<Body>> + Send {
         async move {
-            error!("{err}");
-            if let Some(source) = err.source() {
-                error!("{source:#?}");
-            }
+            error!("{err:#?}");
             create_status_response(StatusCode::BAD_GATEWAY)
         }
     }
