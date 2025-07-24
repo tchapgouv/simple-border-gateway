@@ -11,7 +11,7 @@ use reqwest::Body;
 
 use crate::http_gateway::util::create_status_response;
 
-type BoxedStdError = Box<dyn StdError + Send + Sync>;
+type BoxedStdError = Box<dyn StdError + Send>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum GatewayError {
