@@ -131,6 +131,6 @@ pub(crate) fn remove_default_ports_from_uri(uri: http::Uri) -> String {
                 parts.authority = Some(http::uri::Authority::from_maybe_shared(host).unwrap());
             }
         }
-    };
+    }
     http::Uri::from_parts(parts).unwrap().to_string()
 }

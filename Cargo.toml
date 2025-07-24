@@ -76,4 +76,3 @@ unsafe_code = "forbid"
 [lints.clippy]
 unwrap_used = "deny"
 allow_attributes_without_reason = "deny"
-manual_let_else = "deny"

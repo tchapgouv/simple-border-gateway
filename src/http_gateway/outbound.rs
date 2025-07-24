@@ -142,12 +142,12 @@ impl<H: GatewayHandler> hudsucker::HttpHandler for HandlerAdapter<H> {
 
     async fn handle_response(
         &mut self,
-        _ctx: &hudsucker::HttpContext,
+        ctx: &hudsucker::HttpContext,
         resp: http::Response<hudsucker::Body>,
     ) -> http::Response<hudsucker::Body> {
         let resp = match convert_response_to_reqwest(resp) {
             Ok(resp) => resp,
-            Err(e) => return self.handle_gateway_error(_ctx, e).await,
+            Err(e) => return self.handle_gateway_error(ctx, e).await,
         };
         let resp = self
             .handler
@@ -155,16 +155,16 @@ impl<H: GatewayHandler> hudsucker::HttpHandler for HandlerAdapter<H> {
             .await;
         match convert_response_to_hudsucker(resp) {
             Ok(res) => res,
-            Err(e) => return self.handle_gateway_error(_ctx, e).await,
+            Err(e) => return self.handle_gateway_error(ctx, e).await,
         }
     }
 
     async fn handle_error(
         &mut self,
-        _ctx: &hudsucker::HttpContext,
+        ctx: &hudsucker::HttpContext,
         err: hudsucker::hyper_util::client::legacy::Error,
     ) -> http::Response<hudsucker::Body> {
-        self.handle_gateway_error(_ctx, GatewayError::Forward(Box::new(err)))
+        self.handle_gateway_error(ctx, GatewayError::Forward(Box::new(err)))
             .await
     }
 }
