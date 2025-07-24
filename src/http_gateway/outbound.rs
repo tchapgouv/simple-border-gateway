@@ -115,7 +115,10 @@ impl<H: GatewayHandler> hudsucker::HttpHandler for HandlerAdapter<H> {
                     Ok(req) => req,
                     Err(e) => {
                         return self
-                            .handle_gateway_error(ctx, GatewayError::ConvertRequest(e.to_string()))
+                            .handle_gateway_error(
+                                ctx,
+                                GatewayError::ConvertRequest(format!("{e:#?}")),
+                            )
                             .await
                             .into();
                     }
@@ -125,7 +128,7 @@ impl<H: GatewayHandler> hudsucker::HttpHandler for HandlerAdapter<H> {
                     Ok(resp) => resp.into(),
                     Err(e) => {
                         return self
-                            .handle_gateway_error(ctx, GatewayError::Forward(e.to_string()))
+                            .handle_gateway_error(ctx, GatewayError::Forward(format!("{e:#?}")))
                             .await
                             .into();
                     }
@@ -164,7 +167,7 @@ impl<H: GatewayHandler> hudsucker::HttpHandler for HandlerAdapter<H> {
         _ctx: &hudsucker::HttpContext,
         err: hudsucker::hyper_util::client::legacy::Error,
     ) -> http::Response<hudsucker::Body> {
-        self.handle_gateway_error(_ctx, GatewayError::Forward(err.to_string()))
+        self.handle_gateway_error(_ctx, GatewayError::Forward(format!("{err:#?}")))
             .await
     }
 }
@@ -200,7 +203,7 @@ fn convert_request(
 
     builder
         .body(reqwest::Body::wrap_stream(body.into_data_stream()))
-        .map_err(|e| GatewayError::ConvertRequest(e.to_string()))
+        .map_err(|e| GatewayError::ConvertRequest(format!("{e:#?}")))
 }
 
 fn convert_response_to_hudsucker(
@@ -233,5 +236,5 @@ fn convert_response<B1, B2>(
 
     builder
         .body(convert_body(body))
-        .map_err(|e| GatewayError::ConvertResponse(e.to_string()))
+        .map_err(|e| GatewayError::ConvertResponse(format!("{e:#?}")))
 }

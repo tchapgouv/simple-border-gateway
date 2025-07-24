@@ -156,7 +156,7 @@ async fn forward_request<H: GatewayHandler>(
                 return state
                     .handler
                     .handle_error(
-                        GatewayError::Forward(e.to_string()),
+                        GatewayError::Forward(format!("{e:#?}")),
                         GatewayDirection::Inbound,
                     )
                     .await
@@ -166,7 +166,7 @@ async fn forward_request<H: GatewayHandler>(
             return state
                 .handler
                 .handle_error(
-                    GatewayError::ConvertRequest(e.to_string()),
+                    GatewayError::ConvertRequest(format!("{e:#?}")),
                     GatewayDirection::Inbound,
                 )
                 .await
@@ -186,5 +186,5 @@ fn convert_request(
         .body(reqwest::Body::wrap_stream(
             req.into_body().into_data_stream(),
         ))
-        .map_err(|e| GatewayError::ConvertRequest(e.to_string()))
+        .map_err(|e| GatewayError::ConvertRequest(format!("{e:#?}")))
 }
