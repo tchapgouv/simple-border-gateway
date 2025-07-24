@@ -6,7 +6,7 @@ use std::error::Error as StdError;
 use std::{future::Future, net::SocketAddr};
 
 use http::{Request, Response, StatusCode};
-use log::error;
+use log::{debug, error};
 use reqwest::Body;
 
 use crate::http_gateway::util::create_status_response;
@@ -82,7 +82,8 @@ pub trait GatewayHandler: Clone + Send + Sync + 'static {
         _direction: GatewayDirection,
     ) -> impl Future<Output = Response<Body>> + Send {
         async move {
-            error!("{err:#?}");
+            error!("{err}");
+            debug!("{err:#?}");
             create_status_response(StatusCode::BAD_GATEWAY)
         }
     }
