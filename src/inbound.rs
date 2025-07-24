@@ -107,7 +107,6 @@ impl InboundHandler {
                     Level::Warn,
                     &format!("401 - unauthorized, authorized server but wrong signature: {e}"),
                 );
-                #[allow(clippy::unwrap_used, reason = "no intrusted input")]
                 create_matrix_response(StatusCode::UNAUTHORIZED, "M_UNAUTHORIZED").into()
             }
         }
