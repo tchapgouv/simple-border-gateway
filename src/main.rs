@@ -1,5 +1,5 @@
 use clap::Parser;
-use log::{debug, info, LevelFilter};
+use log::{debug, error, info, LevelFilter};
 use simple_border_gateway::http_gateway::inbound::InboundGatewayBuilder;
 use simple_border_gateway::http_gateway::outbound::OutboundGatewayBuilder;
 use simple_border_gateway::http_gateway::util::{create_http_client, install_crypto_provider};
@@ -40,11 +40,6 @@ async fn main() {
     let cli = Cli::parse();
     println!("Starting simple-border-gateway");
 
-    if cli.inbound_only && cli.outbound_only {
-        eprintln!("Cannot use --inbound-only and --outbound-only at the same time");
-        std::process::exit(1);
-    }
-
     let app_log_level = cli.log_level.unwrap_or(
         LevelFilter::from_str(env::var("LOG_LEVEL").unwrap_or_default().as_str())
             .unwrap_or(LevelFilter::Info),
@@ -65,6 +60,12 @@ async fn main() {
         .init();
 
     debug!("Logging initialized");
+
+    if cli.inbound_only && cli.outbound_only {
+        error!("Cannot use --inbound-only and --outbound-only at the same time");
+        std::process::exit(1);
+    }
+
     debug!("Reading config file {}", cli.config_file.display());
 
     let config_toml_str = fs::read_to_string(cli.config_file).expect("Failed to read config file");

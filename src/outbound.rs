@@ -38,7 +38,6 @@ impl GatewayHandler for OutboundHandler {
         direction: GatewayDirection,
         client_addr: SocketAddr,
     ) -> RequestOrResponse {
-        println!("OutboundHandler::handle_request");
         let (parts, body) = req.into_parts();
         let ctx = RequestContext::new(parts, direction, client_addr, &mut self.name_resolver);
 
