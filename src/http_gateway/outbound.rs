@@ -5,16 +5,18 @@ use http_body_util::BodyExt as _;
 use hudsucker::{certificate_authority::RcgenAuthority, Proxy};
 use log::error;
 use rcgen::{CertificateParams, KeyPair};
+use snafu::ResultExt;
 
 use crate::http_gateway::{
-    util::{create_status_response, read_pem, shutdown_signal},
-    GatewayDirection, GatewayError, GatewayHandler, RequestOrResponse,
+    util::{create_status_response, shutdown_signal},
+    ConvertRequestSnafu, ConvertResponseSnafu, GatewayCreateError, GatewayCreateSnafu,
+    GatewayDirection, GatewayForwardError, GatewayHandler, RequestOrResponse,
 };
 
 pub struct OutboundGatewayBuilder<H: GatewayHandler> {
     listen_address: SocketAddr,
     ca_private_key: String,
-    ca_cert: String,
+    ca_certificate: String,
     http_client: reqwest::Client,
 
     handler: H,
@@ -24,13 +26,13 @@ impl<H: GatewayHandler> OutboundGatewayBuilder<H> {
     pub fn new(
         listen_address: SocketAddr,
         ca_private_key: String,
-        ca_cert: String,
+        ca_certificate: String,
         handler: H,
     ) -> Self {
         Self {
             listen_address,
             ca_private_key,
-            ca_cert,
+            ca_certificate,
             handler,
             http_client: reqwest::Client::new(),
         }
@@ -41,13 +43,16 @@ impl<H: GatewayHandler> OutboundGatewayBuilder<H> {
         self
     }
 
-    pub async fn build_and_run(self) -> Result<(), anyhow::Error> {
-        let ca_private_key = read_pem(&self.ca_private_key)?;
-        let ca_cert = read_pem(&self.ca_cert)?;
-
-        let key_pair = KeyPair::from_pem(ca_private_key.as_str())?;
-        let ca_cert =
-            CertificateParams::from_ca_cert_pem(ca_cert.as_str())?.self_signed(&key_pair)?;
+    pub async fn build_and_run(self) -> Result<(), GatewayCreateError> {
+        let key_pair = KeyPair::from_pem(self.ca_private_key.as_str())
+            .boxed()
+            .context(GatewayCreateSnafu)?;
+        let ca_cert = CertificateParams::from_ca_cert_pem(self.ca_certificate.as_str())
+            .boxed()
+            .context(GatewayCreateSnafu)?
+            .self_signed(&key_pair)
+            .boxed()
+            .context(GatewayCreateSnafu)?;
 
         let ca = RcgenAuthority::new(
             key_pair,
@@ -64,9 +69,11 @@ impl<H: GatewayHandler> OutboundGatewayBuilder<H> {
         let proxy = builder
             .with_http_handler(HandlerAdapter::new(self.handler, self.http_client))
             .with_graceful_shutdown(shutdown_signal())
-            .build()?;
+            .build()
+            .boxed()
+            .context(GatewayCreateSnafu)?;
 
-        Ok(proxy.start().await?)
+        Ok(proxy.start().await.boxed().context(GatewayCreateSnafu)?)
     }
 }
 
@@ -115,7 +122,12 @@ impl<H: GatewayHandler> hudsucker::HttpHandler for HandlerAdapter<H> {
                     Ok(req) => req,
                     Err(e) => {
                         return self
-                            .handle_gateway_error(ctx, GatewayError::ConvertRequest(Box::new(e)))
+                            .handle_gateway_error(
+                                ctx,
+                                GatewayForwardError::ConvertRequest {
+                                    source: Box::new(e),
+                                },
+                            )
                             .await
                             .into();
                     }
@@ -125,7 +137,12 @@ impl<H: GatewayHandler> hudsucker::HttpHandler for HandlerAdapter<H> {
                     Ok(resp) => resp.into(),
                     Err(e) => {
                         return self
-                            .handle_gateway_error(ctx, GatewayError::Forward(Box::new(e)))
+                            .handle_gateway_error(
+                                ctx,
+                                GatewayForwardError::Forward {
+                                    source: Box::new(e),
+                                },
+                            )
                             .await
                             .into();
                     }
@@ -164,8 +181,13 @@ impl<H: GatewayHandler> hudsucker::HttpHandler for HandlerAdapter<H> {
         ctx: &hudsucker::HttpContext,
         err: hudsucker::hyper_util::client::legacy::Error,
     ) -> http::Response<hudsucker::Body> {
-        self.handle_gateway_error(ctx, GatewayError::Forward(Box::new(err)))
-            .await
+        self.handle_gateway_error(
+            ctx,
+            GatewayForwardError::Forward {
+                source: Box::new(err),
+            },
+        )
+        .await
     }
 }
 
@@ -173,7 +195,7 @@ impl<H: GatewayHandler> HandlerAdapter<H> {
     async fn handle_gateway_error(
         &mut self,
         _ctx: &hudsucker::HttpContext,
-        err: GatewayError,
+        err: GatewayForwardError,
     ) -> http::Response<hudsucker::Body> {
         match convert_response_to_hudsucker(
             self.handler
@@ -191,7 +213,7 @@ impl<H: GatewayHandler> HandlerAdapter<H> {
 
 fn convert_request(
     req: http::Request<hudsucker::Body>,
-) -> Result<http::Request<reqwest::Body>, GatewayError> {
+) -> Result<http::Request<reqwest::Body>, GatewayForwardError> {
     let (parts, body) = req.into_parts();
     let mut builder = http::Request::builder().method(parts.method).uri(parts.uri);
     for (name, value) in &parts.headers {
@@ -200,12 +222,13 @@ fn convert_request(
 
     builder
         .body(reqwest::Body::wrap_stream(body.into_data_stream()))
-        .map_err(|e| GatewayError::ConvertRequest(Box::new(e)))
+        .boxed()
+        .context(ConvertRequestSnafu {})
 }
 
 fn convert_response_to_hudsucker(
     resp: http::Response<reqwest::Body>,
-) -> Result<http::Response<hudsucker::Body>, GatewayError> {
+) -> Result<http::Response<hudsucker::Body>, GatewayForwardError> {
     convert_response(resp, |body| {
         hudsucker::Body::from_stream(futures::StreamExt::map(body.into_data_stream(), |result| {
             result.map_err(std::io::Error::other)
@@ -215,7 +238,7 @@ fn convert_response_to_hudsucker(
 
 fn convert_response_to_reqwest(
     resp: http::Response<hudsucker::Body>,
-) -> Result<http::Response<reqwest::Body>, GatewayError> {
+) -> Result<http::Response<reqwest::Body>, GatewayForwardError> {
     convert_response(resp, |body| {
         reqwest::Body::wrap_stream(body.into_data_stream())
     })
@@ -224,7 +247,7 @@ fn convert_response_to_reqwest(
 fn convert_response<B1, B2>(
     resp: http::Response<B1>,
     convert_body: fn(B1) -> B2,
-) -> Result<http::Response<B2>, GatewayError> {
+) -> Result<http::Response<B2>, GatewayForwardError> {
     let (parts, body) = resp.into_parts();
     let mut builder = http::Response::builder().status(parts.status);
     for (name, value) in &parts.headers {
@@ -233,5 +256,6 @@ fn convert_response<B1, B2>(
 
     builder
         .body(convert_body(body))
-        .map_err(|e| GatewayError::ConvertResponse(Box::new(e)))
+        .boxed()
+        .context(ConvertResponseSnafu {})
 }

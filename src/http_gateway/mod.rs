@@ -2,29 +2,33 @@ pub mod inbound;
 pub mod outbound;
 pub mod util;
 
-use std::error::Error as StdError;
 use std::{future::Future, net::SocketAddr};
 
 use http::{Request, Response, StatusCode};
 use log::{debug, error};
 use reqwest::Body;
+use snafu::Snafu;
 
 use crate::http_gateway::util::create_status_response;
 
-type BoxedStdError = Box<dyn StdError + Send>;
+type BoxedStdError = Box<dyn std::error::Error + Send + Sync>;
 
-#[derive(Debug, thiserror::Error)]
-pub enum GatewayError {
-    #[error("Failed to create gateway: {0}")]
-    CreateGateway(#[source] BoxedStdError),
-    #[error("Failed to convert request: {0}")]
-    ConvertRequest(#[source] BoxedStdError),
-    #[error("Failed to convert response: {0}")]
-    ConvertResponse(#[source] BoxedStdError),
-    #[error("Failed to forward request: {0}")]
-    Forward(#[source] BoxedStdError),
-    #[error("Destination not found for host {0}")]
-    DestinationNotFound(String),
+#[derive(Debug, Snafu)]
+#[snafu(display("Failed to create gateway"))]
+pub struct GatewayCreateError {
+    source: BoxedStdError,
+}
+
+#[derive(Debug, Snafu)]
+pub enum GatewayForwardError {
+    #[snafu(display("Failed to convert request"))]
+    ConvertRequest { source: BoxedStdError },
+    #[snafu(display("Failed to convert response"))]
+    ConvertResponse { source: BoxedStdError },
+    #[snafu(display("Failed to forward request"))]
+    Forward { source: BoxedStdError },
+    #[snafu(display("Destination not found for host {host}"))]
+    DestinationNotFound { host: String },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -80,7 +84,7 @@ pub trait GatewayHandler: Clone + Send + Sync + 'static {
     /// This handler will be called if a proxy request fails. Default response is a 502 Bad Gateway.
     fn handle_error(
         &mut self,
-        err: GatewayError,
+        err: GatewayForwardError,
         _direction: GatewayDirection,
     ) -> impl Future<Output = Response<Body>> + Send {
         async move {

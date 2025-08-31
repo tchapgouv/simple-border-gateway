@@ -3,12 +3,13 @@ use rand::Rng;
 use rcgen::{BasicConstraints, CertificateParams, IsCa, KeyPair};
 use reqwest::{Body, Proxy};
 use simple_border_gateway::http_gateway::outbound::OutboundGatewayBuilder;
-use simple_border_gateway::http_gateway::util::{create_http_client, install_crypto_provider};
+use simple_border_gateway::http_gateway::util::install_crypto_provider;
 use simple_border_gateway::http_gateway::{
-    GatewayDirection, GatewayError, GatewayHandler, RequestOrResponse,
+    GatewayDirection, GatewayForwardError, GatewayHandler, RequestOrResponse,
 };
 use simple_border_gateway::matrix::util::NameResolver;
 use simple_border_gateway::outbound::OutboundHandler;
+use simple_border_gateway::util::create_http_client;
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::net::SocketAddr;
@@ -59,7 +60,7 @@ impl GatewayHandler for HandlerWithMockServer {
 
     fn handle_error(
         &mut self,
-        err: GatewayError,
+        err: GatewayForwardError,
         _direction: GatewayDirection,
     ) -> impl Future<Output = Response<Body>> + Send {
         self.original_handler.handle_error(err, _direction)

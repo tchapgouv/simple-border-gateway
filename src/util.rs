@@ -134,3 +134,28 @@ pub(crate) fn remove_default_ports_from_uri(uri: http::Uri) -> String {
     }
     http::Uri::from_parts(parts).unwrap().to_string()
 }
+
+pub fn read_pem(path_or_content: &str) -> Result<String, anyhow::Error> {
+    let bytes = if path_or_content.starts_with("----") {
+        path_or_content.as_bytes().to_vec()
+    } else {
+        std::fs::read(path_or_content)?
+    };
+    Ok(String::from_utf8(bytes)?)
+}
+
+pub fn create_http_client(
+    additional_root_certs: Vec<String>,
+    upstream_proxy_url: Option<String>,
+) -> Result<reqwest::Client, anyhow::Error> {
+    let mut builder = reqwest::Client::builder().use_rustls_tls();
+    if let Some(upstream_proxy_url) = upstream_proxy_url {
+        builder = builder.proxy(reqwest::Proxy::all(upstream_proxy_url)?);
+    }
+    for cert in additional_root_certs {
+        builder = builder
+            .add_root_certificate(reqwest::Certificate::from_pem(read_pem(&cert)?.as_bytes())?);
+    }
+    // dns resolver dns overrides ?
+    Ok(builder.build()?)
+}

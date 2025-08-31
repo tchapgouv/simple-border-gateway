@@ -2,10 +2,11 @@ use clap::Parser;
 use log::{debug, error, info, LevelFilter};
 use simple_border_gateway::http_gateway::inbound::InboundGatewayBuilder;
 use simple_border_gateway::http_gateway::outbound::OutboundGatewayBuilder;
-use simple_border_gateway::http_gateway::util::{create_http_client, install_crypto_provider};
+use simple_border_gateway::http_gateway::util::install_crypto_provider;
 use simple_border_gateway::inbound::InboundHandler;
 use simple_border_gateway::matrix::util::NameResolver;
 use simple_border_gateway::outbound::OutboundHandler;
+use simple_border_gateway::util::{create_http_client, read_pem};
 
 use std::env;
 use std::path::PathBuf;
@@ -155,14 +156,19 @@ async fn main() {
             )
             .expect("Failed to create outbound handler");
 
+            let ca_private_key = read_pem(outbound_config.ca_priv_key.as_str())
+                .expect("Can't read CA private key for outbound proxy");
+            let ca_cert = read_pem(&outbound_config.ca_cert)
+                .expect("Can't read CA certificate for outbound proxy");
+
             tasks.push(tokio::spawn(async move {
                 OutboundGatewayBuilder::new(
                     outbound_config
                         .listen_address
                         .parse()
                         .expect("Failed to parse outbound listen address"),
-                    outbound_config.ca_priv_key,
-                    outbound_config.ca_cert,
+                    ca_private_key,
+                    ca_cert,
                     handler,
                 )
                 .with_http_client(http_client)
