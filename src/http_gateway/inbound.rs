@@ -4,12 +4,14 @@ use axum::{
     extract::{ConnectInfo, State},
     Router,
 };
+use snafu::ResultExt;
 use tokio::net::TcpListener;
 use tracing::Level;
 
 use crate::http_gateway::{
     util::{extract_destination_host, shutdown_signal},
-    GatewayDirection, GatewayError, GatewayHandler, RequestOrResponse,
+    ConvertRequestSnafu, GatewayCreateError, GatewayCreateSnafu, GatewayDirection,
+    GatewayForwardError, GatewayHandler, RequestOrResponse,
 };
 
 #[derive(Clone)]
@@ -52,7 +54,7 @@ impl<H: GatewayHandler> InboundGatewayBuilder<H> {
         self
     }
 
-    pub async fn build_and_run(self) -> Result<(), anyhow::Error> {
+    pub async fn build_and_run(self) -> Result<(), GatewayCreateError> {
         let http_client = self.http_client.unwrap_or_default();
 
         let state = InboundGatewayState {
@@ -61,7 +63,10 @@ impl<H: GatewayHandler> InboundGatewayBuilder<H> {
             handler: self.handler,
         };
 
-        let listener = TcpListener::bind::<SocketAddr>(self.listen_address).await?;
+        let listener = TcpListener::bind::<SocketAddr>(self.listen_address)
+            .await
+            .boxed()
+            .context(GatewayCreateSnafu {})?;
 
         let mut router = Router::new();
         if let Some(level) = self.tracing_level {
@@ -86,7 +91,8 @@ impl<H: GatewayHandler> InboundGatewayBuilder<H> {
         )
         .with_graceful_shutdown(shutdown_signal())
         .await
-        .map_err(|e| anyhow::anyhow!("Error starting inbound proxy: {}", e))
+        .boxed()
+        .context(GatewayCreateSnafu {})
     }
 }
 
@@ -131,7 +137,9 @@ async fn forward_request<H: GatewayHandler>(
         return state
             .handler
             .handle_error(
-                GatewayError::DestinationNotFound(dest_host.to_string()),
+                GatewayForwardError::DestinationNotFound {
+                    host: dest_host.to_string(),
+                },
                 GatewayDirection::Inbound,
             )
             .await;
@@ -154,7 +162,9 @@ async fn forward_request<H: GatewayHandler>(
             return state
                 .handler
                 .handle_error(
-                    GatewayError::ConvertRequest(Box::new(e)),
+                    GatewayForwardError::ConvertRequest {
+                        source: Box::new(e),
+                    },
                     GatewayDirection::Inbound,
                 )
                 .await
@@ -167,7 +177,9 @@ async fn forward_request<H: GatewayHandler>(
             return state
                 .handler
                 .handle_error(
-                    GatewayError::Forward(Box::new(e)),
+                    GatewayForwardError::Forward {
+                        source: Box::new(e),
+                    },
                     GatewayDirection::Inbound,
                 )
                 .await
@@ -177,7 +189,7 @@ async fn forward_request<H: GatewayHandler>(
 
 fn convert_request(
     req: http::Request<axum::body::Body>,
-) -> Result<http::Request<reqwest::Body>, GatewayError> {
+) -> Result<http::Request<reqwest::Body>, GatewayForwardError> {
     let mut builder = http::Request::builder().method(req.method()).uri(req.uri());
     for (name, value) in req.headers() {
         builder = builder.header(name, value);
@@ -187,5 +199,6 @@ fn convert_request(
         .body(reqwest::Body::wrap_stream(
             req.into_body().into_data_stream(),
         ))
-        .map_err(|e| GatewayError::ConvertRequest(Box::new(e)))
+        .boxed()
+        .context(ConvertRequestSnafu {})
 }
