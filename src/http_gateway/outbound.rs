@@ -74,7 +74,7 @@ impl<H: GatewayHandler> OutboundGatewayBuilder<H> {
             .boxed()
             .context(GatewayCreateSnafu)?;
 
-        Ok(proxy.start().await.boxed().context(GatewayCreateSnafu)?)
+        proxy.start().await.boxed().context(GatewayCreateSnafu)
     }
 }
 
