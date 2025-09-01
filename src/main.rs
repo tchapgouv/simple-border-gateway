@@ -2,11 +2,12 @@ use clap::Parser;
 use log::{debug, error, info, LevelFilter};
 use simple_border_gateway::http_gateway::inbound::InboundGatewayBuilder;
 use simple_border_gateway::http_gateway::outbound::OutboundGatewayBuilder;
-use simple_border_gateway::http_gateway::util::install_crypto_provider;
 use simple_border_gateway::inbound::InboundHandler;
 use simple_border_gateway::matrix::util::NameResolver;
 use simple_border_gateway::outbound::OutboundHandler;
-use simple_border_gateway::util::{create_http_client, read_pem};
+use simple_border_gateway::util::{
+    create_http_client, crypto_provider, install_crypto_provider, read_pem,
+};
 
 use std::env;
 use std::path::PathBuf;
@@ -169,6 +170,7 @@ async fn main() {
                         .expect("Failed to parse outbound listen address"),
                     ca_private_key,
                     ca_cert,
+                    crypto_provider::default_provider(),
                     handler,
                 )
                 .with_http_client(http_client)

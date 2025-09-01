@@ -2,16 +2,7 @@ use std::net::{IpAddr, SocketAddr};
 
 use http::StatusCode;
 
-#[cfg(feature = "aws_lc_rs")]
-pub use rustls::crypto::aws_lc_rs as crypto_provider;
-#[cfg(feature = "ring")]
-pub use rustls::crypto::ring as crypto_provider;
-
 use crate::http_gateway::GatewayDirection;
-
-pub fn install_crypto_provider() {
-    let _ = crypto_provider::default_provider().install_default();
-}
 
 pub async fn shutdown_signal() {
     tokio::signal::ctrl_c()

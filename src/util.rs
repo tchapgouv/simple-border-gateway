@@ -18,6 +18,15 @@ use crate::{
     },
 };
 
+#[cfg(feature = "aws_lc_rs")]
+pub use rustls::crypto::aws_lc_rs as crypto_provider;
+#[cfg(feature = "ring")]
+pub use rustls::crypto::ring as crypto_provider;
+
+pub fn install_crypto_provider() {
+    let _ = crypto_provider::default_provider().install_default();
+}
+
 #[derive(Clone)]
 pub(crate) struct RegexEndpoint {
     regex: Regex,

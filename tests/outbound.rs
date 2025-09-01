@@ -3,13 +3,12 @@ use rand::Rng;
 use rcgen::{BasicConstraints, CertificateParams, IsCa, KeyPair};
 use reqwest::{Body, Proxy};
 use simple_border_gateway::http_gateway::outbound::OutboundGatewayBuilder;
-use simple_border_gateway::http_gateway::util::install_crypto_provider;
 use simple_border_gateway::http_gateway::{
     GatewayDirection, GatewayForwardError, GatewayHandler, RequestOrResponse,
 };
 use simple_border_gateway::matrix::util::NameResolver;
 use simple_border_gateway::outbound::OutboundHandler;
-use simple_border_gateway::util::create_http_client;
+use simple_border_gateway::util::{create_http_client, crypto_provider, install_crypto_provider};
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::net::SocketAddr;
@@ -109,6 +108,7 @@ async fn setup_mock_gateway(
         format!("127.0.0.1:{}", port).parse().unwrap(),
         ca_key_pair.serialize_pem(),
         ca_cert.pem(),
+        crypto_provider::default_provider(),
         handler,
     );
 

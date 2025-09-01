@@ -5,9 +5,9 @@ use ruma::serde::Base64;
 use ruma::signatures::{sign_json, Ed25519KeyPair};
 use ruma::CanonicalJsonValue;
 use simple_border_gateway::http_gateway::inbound::InboundGatewayBuilder;
-use simple_border_gateway::http_gateway::util::install_crypto_provider;
 use simple_border_gateway::inbound::InboundHandler;
 use simple_border_gateway::matrix::util::NameResolver;
+use simple_border_gateway::util::install_crypto_provider;
 use std::collections::BTreeMap;
 
 async fn setup_mock_gateway() -> (httpmock::MockServer, u32, Ed25519KeyPair) {

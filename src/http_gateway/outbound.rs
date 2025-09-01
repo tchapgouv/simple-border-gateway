@@ -5,6 +5,7 @@ use http_body_util::BodyExt as _;
 use hudsucker::{certificate_authority::RcgenAuthority, Proxy};
 use log::error;
 use rcgen::{CertificateParams, KeyPair};
+use rustls::crypto::CryptoProvider;
 use snafu::ResultExt;
 
 use crate::http_gateway::{
@@ -17,6 +18,7 @@ pub struct OutboundGatewayBuilder<H: GatewayHandler> {
     listen_address: SocketAddr,
     ca_private_key: String,
     ca_certificate: String,
+    crypto_provider: CryptoProvider,
     http_client: reqwest::Client,
 
     handler: H,
@@ -27,12 +29,14 @@ impl<H: GatewayHandler> OutboundGatewayBuilder<H> {
         listen_address: SocketAddr,
         ca_private_key: String,
         ca_certificate: String,
+        crypto_provider: CryptoProvider,
         handler: H,
     ) -> Self {
         Self {
             listen_address,
             ca_private_key,
             ca_certificate,
+            crypto_provider,
             handler,
             http_client: reqwest::Client::new(),
         }
@@ -54,17 +58,14 @@ impl<H: GatewayHandler> OutboundGatewayBuilder<H> {
             .boxed()
             .context(GatewayCreateSnafu)?;
 
-        let ca = RcgenAuthority::new(
-            key_pair,
-            ca_cert,
-            1_000,
-            crate::http_gateway::util::crypto_provider::default_provider(),
-        );
+        let crypto_provider = self.crypto_provider;
+
+        let ca = RcgenAuthority::new(key_pair, ca_cert, 1_000, crypto_provider.clone());
 
         let builder = Proxy::builder()
             .with_addr(self.listen_address)
             .with_ca(ca)
-            .with_rustls_client(crate::http_gateway::util::crypto_provider::default_provider());
+            .with_rustls_client(crypto_provider);
 
         let proxy = builder
             .with_http_handler(HandlerAdapter::new(self.handler, self.http_client))
