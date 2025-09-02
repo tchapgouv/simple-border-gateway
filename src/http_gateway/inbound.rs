@@ -4,15 +4,20 @@ use axum::{
     extract::{ConnectInfo, State},
     Router,
 };
-use snafu::ResultExt;
+use snafu::{ResultExt, Snafu};
 use tokio::net::TcpListener;
 use tracing::Level;
 
 use crate::http_gateway::{
     util::{extract_destination_host, shutdown_signal},
-    ConvertRequestSnafu, GatewayCreateError, GatewayCreateSnafu, GatewayDirection,
-    GatewayForwardError, GatewayHandler, RequestOrResponse,
+    ConvertRequestSnafu, GatewayDirection, GatewayForwardError, GatewayHandler, RequestOrResponse,
 };
+
+#[derive(Debug, Snafu)]
+#[snafu(display("Failed to bind inbound proxy"))]
+pub struct InboundGatewayBindError {
+    source: std::io::Error,
+}
 
 #[derive(Clone)]
 struct InboundGatewayState<H: GatewayHandler> {
@@ -54,7 +59,7 @@ impl<H: GatewayHandler> InboundGatewayBuilder<H> {
         self
     }
 
-    pub async fn build_and_run(self) -> Result<(), GatewayCreateError> {
+    pub async fn build_and_run(self) -> Result<(), InboundGatewayBindError> {
         let http_client = self.http_client.unwrap_or_default();
 
         let state = InboundGatewayState {
@@ -65,8 +70,7 @@ impl<H: GatewayHandler> InboundGatewayBuilder<H> {
 
         let listener = TcpListener::bind::<SocketAddr>(self.listen_address)
             .await
-            .boxed()
-            .context(GatewayCreateSnafu {})?;
+            .context(InboundGatewayBindSnafu)?;
 
         let mut router = Router::new();
         if let Some(level) = self.tracing_level {
@@ -91,8 +95,7 @@ impl<H: GatewayHandler> InboundGatewayBuilder<H> {
         )
         .with_graceful_shutdown(shutdown_signal())
         .await
-        .boxed()
-        .context(GatewayCreateSnafu {})
+        .context(InboundGatewayBindSnafu)
     }
 }
 

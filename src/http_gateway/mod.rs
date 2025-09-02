@@ -14,12 +14,6 @@ use crate::http_gateway::util::create_status_response;
 type BoxedStdError = Box<dyn std::error::Error + Send + Sync>;
 
 #[derive(Debug, Snafu)]
-#[snafu(display("Failed to create gateway"))]
-pub struct GatewayCreateError {
-    source: BoxedStdError,
-}
-
-#[derive(Debug, Snafu)]
 pub enum GatewayForwardError {
     #[snafu(display("Failed to convert request"))]
     ConvertRequest { source: BoxedStdError },

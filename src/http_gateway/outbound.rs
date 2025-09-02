@@ -6,13 +6,23 @@ use hudsucker::{certificate_authority::RcgenAuthority, Proxy};
 use log::error;
 use rcgen::{CertificateParams, KeyPair};
 use rustls::crypto::CryptoProvider;
-use snafu::ResultExt;
+use snafu::{ResultExt, Snafu};
 
 use crate::http_gateway::{
     util::{create_status_response, shutdown_signal},
-    ConvertRequestSnafu, ConvertResponseSnafu, GatewayCreateError, GatewayCreateSnafu,
-    GatewayDirection, GatewayForwardError, GatewayHandler, RequestOrResponse,
+    ConvertRequestSnafu, ConvertResponseSnafu, GatewayDirection, GatewayForwardError,
+    GatewayHandler, RequestOrResponse,
 };
+
+#[derive(Debug, Snafu)]
+pub enum OutboundGatewayCreateError {
+    #[snafu(display("Failed to parse CA private key"))]
+    ParsePrivateKey { source: rcgen::Error },
+    #[snafu(display("Failed to parse CA certificate"))]
+    ParseCertificate { source: rcgen::Error },
+    #[snafu(display("Failed to bind or create outbound proxy"))]
+    Proxy { source: hudsucker::Error },
+}
 
 pub struct OutboundGatewayBuilder<H: GatewayHandler> {
     listen_address: SocketAddr,
@@ -47,16 +57,13 @@ impl<H: GatewayHandler> OutboundGatewayBuilder<H> {
         self
     }
 
-    pub async fn build_and_run(self) -> Result<(), GatewayCreateError> {
-        let key_pair = KeyPair::from_pem(self.ca_private_key.as_str())
-            .boxed()
-            .context(GatewayCreateSnafu)?;
+    pub async fn build_and_run(self) -> Result<(), OutboundGatewayCreateError> {
+        let key_pair =
+            KeyPair::from_pem(self.ca_private_key.as_str()).context(ParsePrivateKeySnafu)?;
         let ca_cert = CertificateParams::from_ca_cert_pem(self.ca_certificate.as_str())
-            .boxed()
-            .context(GatewayCreateSnafu)?
+            .context(ParseCertificateSnafu)?
             .self_signed(&key_pair)
-            .boxed()
-            .context(GatewayCreateSnafu)?;
+            .context(ParseCertificateSnafu)?;
 
         let crypto_provider = self.crypto_provider;
 
@@ -71,10 +78,9 @@ impl<H: GatewayHandler> OutboundGatewayBuilder<H> {
             .with_http_handler(HandlerAdapter::new(self.handler, self.http_client))
             .with_graceful_shutdown(shutdown_signal())
             .build()
-            .boxed()
-            .context(GatewayCreateSnafu)?;
+            .context(ProxySnafu)?;
 
-        proxy.start().await.boxed().context(GatewayCreateSnafu)
+        proxy.start().await.context(ProxySnafu)
     }
 }
 
