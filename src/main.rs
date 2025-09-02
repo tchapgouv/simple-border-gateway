@@ -8,6 +8,7 @@ use simple_border_gateway::outbound::OutboundHandler;
 use simple_border_gateway::util::{
     create_http_client, crypto_provider, install_crypto_provider, read_pem,
 };
+use snafu::{ResultExt, Whatever};
 
 use std::env;
 use std::path::PathBuf;
@@ -37,8 +38,9 @@ struct Cli {
     config_file: PathBuf,
 }
 
+#[snafu::report]
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Whatever> {
     let cli = Cli::parse();
     println!("Starting simple-border-gateway");
 
@@ -70,9 +72,10 @@ async fn main() {
 
     debug!("Reading config file {}", cli.config_file.display());
 
-    let config_toml_str = fs::read_to_string(cli.config_file).expect("Failed to read config file");
+    let config_toml_str =
+        fs::read_to_string(cli.config_file).whatever_context("Failed to read config file")?;
     let config: BorderGatewayConfig =
-        toml::from_str(&config_toml_str).expect("Failed to deserialize config file");
+        toml::from_str(&config_toml_str).whatever_context("Failed to deserialize config file")?;
 
     debug!("Config file loaded");
 
@@ -102,7 +105,7 @@ async fn main() {
         for (k, v) in hs.verify_keys {
             verify_keys.insert(
                 k,
-                Base64::parse(v).expect("Failed to parse verify key as base64"),
+                Base64::parse(v).whatever_context("Failed to parse verify key as base64")?,
             );
         }
         public_key_map.insert(hs.server_name, verify_keys);
@@ -119,22 +122,20 @@ async fn main() {
             info!("Inbound proxy is configured but --outbound-only is set, inbound proxy will not be started");
         } else {
             let http_client = create_http_client(inbound_config.additional_root_certs, None)
-                .expect("Failed to create inbound http client");
+                .whatever_context("Failed to create inbound http client")?;
             let handler = InboundHandler::new(name_resolver.clone(), public_key_map);
 
+            let listen_address = inbound_config
+                .listen_address
+                .parse()
+                .whatever_context("Failed to parse inbound listen address")?;
+
             tasks.push(tokio::spawn(async move {
-                InboundGatewayBuilder::new(
-                    inbound_config
-                        .listen_address
-                        .parse()
-                        .expect("Failed to parse inbound listen address"),
-                    target_base_urls,
-                    handler,
-                )
-                .with_http_client(http_client)
-                .build_and_run()
-                .await
-                .expect("Failed to create inbound proxy");
+                InboundGatewayBuilder::new(listen_address, target_base_urls, handler)
+                    .with_http_client(http_client)
+                    .build_and_run()
+                    .await
+                    .expect("Failed to create inbound proxy");
             }));
             info!("Inbound proxy initialized");
         }
@@ -148,26 +149,28 @@ async fn main() {
                 outbound_config.additional_root_certs,
                 outbound_config.upstream_proxy_url,
             )
-            .expect("Failed to create outbound http client");
+            .whatever_context("Failed to create outbound http client")?;
             let handler = OutboundHandler::new(
                 name_resolver,
                 allowed_federation_domains,
                 allowed_client_domains,
                 outbound_config.allowed_non_matrix_regexes_dangerous,
             )
-            .expect("Failed to create outbound handler");
+            .whatever_context("Failed to create outbound handler")?;
 
             let ca_private_key = read_pem(outbound_config.ca_priv_key.as_str())
-                .expect("Can't read CA private key for outbound proxy");
+                .whatever_context("Can't read CA private key for outbound proxy")?;
             let ca_cert = read_pem(&outbound_config.ca_cert)
-                .expect("Can't read CA certificate for outbound proxy");
+                .whatever_context("Can't read CA certificate for outbound proxy")?;
+
+            let listen_address = outbound_config
+                .listen_address
+                .parse()
+                .whatever_context("Failed to parse outbound listen address")?;
 
             tasks.push(tokio::spawn(async move {
                 OutboundGatewayBuilder::new(
-                    outbound_config
-                        .listen_address
-                        .parse()
-                        .expect("Failed to parse outbound listen address"),
+                    listen_address,
                     ca_private_key,
                     ca_cert,
                     crypto_provider::default_provider(),
@@ -185,4 +188,6 @@ async fn main() {
     for task in tasks {
         let _ = task.await;
     }
+
+    Ok(())
 }

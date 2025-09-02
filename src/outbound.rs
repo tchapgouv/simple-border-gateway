@@ -7,6 +7,7 @@ use http::{Request, StatusCode};
 use log::Level;
 use regex::Regex;
 use reqwest::Body;
+use snafu::{ResultExt, Whatever};
 
 use crate::{
     http_gateway::{
@@ -93,18 +94,15 @@ impl OutboundHandler {
         allowed_federation_domains: BTreeMap<String, String>,
         allowed_client_domains: BTreeMap<String, String>,
         allowed_non_matrix_regexes: Vec<String>,
-    ) -> Result<Self, anyhow::Error> {
+    ) -> Result<Self, Whatever> {
         let mut allowed_server_names =
             HashSet::from_iter(allowed_federation_domains.values().cloned());
         allowed_server_names.extend(allowed_client_domains.values().cloned());
 
         let allowed_non_matrix_regexes = allowed_non_matrix_regexes
             .iter()
-            .map(|regex| {
-                Regex::new(regex)
-                    .map_err(|e| anyhow::anyhow!("Error parsing non matrix regex: {e}"))
-            })
-            .collect::<Result<Vec<Regex>, anyhow::Error>>()?;
+            .map(|regex| Regex::new(regex).whatever_context("Error parsing non matrix regex"))
+            .collect::<Result<Vec<Regex>, Whatever>>()?;
 
         Ok(Self {
             name_resolver,

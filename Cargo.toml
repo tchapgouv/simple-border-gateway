@@ -39,7 +39,6 @@ bytes = "1"
 tracing = "0.1"
 log = "0.4"
 env_logger = "0.11"
-anyhow = "1"
 snafu = "0.8"
 ttl_cache = "0.5"
 clap = { version = "4", features = ["derive"] }
