@@ -5,9 +5,9 @@ pub mod util;
 use std::{future::Future, net::SocketAddr};
 
 use http::{Request, Response, StatusCode};
-use log::{debug, error};
+use log::error;
 use reqwest::Body;
-use snafu::Snafu;
+use snafu::{Report, Snafu};
 
 use crate::http_gateway::util::create_status_response;
 
@@ -82,8 +82,7 @@ pub trait GatewayHandler: Clone + Send + Sync + 'static {
         _direction: GatewayDirection,
     ) -> impl Future<Output = Response<Body>> + Send {
         async move {
-            error!("{err}");
-            debug!("{err:#?}");
+            error!("{}", Report::from_error(err));
             create_status_response(StatusCode::BAD_GATEWAY)
         }
     }

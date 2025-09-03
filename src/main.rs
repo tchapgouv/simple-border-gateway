@@ -8,10 +8,11 @@ use simple_border_gateway::outbound::OutboundHandler;
 use simple_border_gateway::util::{
     create_http_client, crypto_provider, install_crypto_provider, read_pem,
 };
-use snafu::{ResultExt, Whatever};
+use snafu::{Report, ResultExt, Whatever};
 
 use std::env;
 use std::path::PathBuf;
+use std::process::exit;
 use std::str::FromStr;
 use std::{collections::BTreeMap, fs};
 
@@ -131,11 +132,16 @@ async fn main() -> Result<(), Whatever> {
                 .whatever_context("Failed to parse inbound listen address")?;
 
             tasks.push(tokio::spawn(async move {
-                InboundGatewayBuilder::new(listen_address, target_base_urls, handler)
-                    .with_http_client(http_client)
-                    .build_and_run()
-                    .await
-                    .expect("Failed to create inbound proxy");
+                if let Err(err) =
+                    InboundGatewayBuilder::new(listen_address, target_base_urls, handler)
+                        .with_http_client(http_client)
+                        .build_and_run()
+                        .await
+                {
+                    error!("Failed to create inbound proxy");
+                    error!("{}", Report::from_error(err));
+                    exit(1);
+                }
             }));
             info!("Inbound proxy initialized");
         }
@@ -169,7 +175,7 @@ async fn main() -> Result<(), Whatever> {
                 .whatever_context("Failed to parse outbound listen address")?;
 
             tasks.push(tokio::spawn(async move {
-                OutboundGatewayBuilder::new(
+                if let Err(err) = OutboundGatewayBuilder::new(
                     listen_address,
                     ca_private_key,
                     ca_cert,
@@ -179,7 +185,11 @@ async fn main() -> Result<(), Whatever> {
                 .with_http_client(http_client)
                 .build_and_run()
                 .await
-                .expect("Failed to create outbound proxy");
+                {
+                    error!("Failed to create outbound proxy");
+                    error!("{}", Report::from_error(err));
+                    exit(1);
+                }
             }));
             info!("Outbound proxy initialized");
         }
