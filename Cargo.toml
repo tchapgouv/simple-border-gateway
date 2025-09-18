@@ -28,9 +28,8 @@ tower-http = { version = "0.6", features = ["trace"] }
 
 http = "1"
 
-ruma = { version = "0.12", default-features = false, features = [
-    "server-util",
-    "signatures",
+ruma = { version = "0.13", default-features = false, features = [
+    "federation-api",
 ] }
 
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

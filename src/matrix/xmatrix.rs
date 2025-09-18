@@ -1,6 +1,6 @@
 use http::request::Parts;
 use ruma::{
-    server_util::authorization::XMatrix,
+    api::federation::authentication::XMatrix,
     signatures::{verify_json, PublicKeyMap},
     CanonicalJsonValue,
 };
