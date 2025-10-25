@@ -28,10 +28,3 @@ but we should probably do it.
 We should probably pin the CA root certificate to help against MITM attacks.
 
 Signature of authenticated requests are not checked since they are coming from our owned trusted servers.
-
-## Contributing
-
-This software is still WIP and we are still refactoring quite often
-so for now we'd rather get code suggestions as issues or discussions rather than PRs.
-
-You are however very welcome for any PR improving the CI or the documentation :)
