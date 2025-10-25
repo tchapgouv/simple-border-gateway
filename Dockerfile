@@ -3,8 +3,8 @@
 # The Debian version and version name must be in sync
 ARG DEBIAN_VERSION=12
 ARG DEBIAN_VERSION_NAME=bookworm
-ARG RUSTC_VERSION=1.87.0
-ARG CARGO_AUDITABLE_VERSION=0.6.6
+ARG RUSTC_VERSION=1.90.0
+ARG CARGO_AUDITABLE_VERSION=0.7.1
 
 ########################################
 ## Build stage that builds the binary ##

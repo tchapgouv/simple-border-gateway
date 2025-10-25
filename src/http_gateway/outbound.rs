@@ -4,7 +4,7 @@ use http::Method;
 use http_body_util::BodyExt as _;
 use hudsucker::{certificate_authority::RcgenAuthority, Proxy};
 use log::error;
-use rcgen::{CertificateParams, KeyPair};
+use rcgen::{Issuer, KeyPair};
 use rustls::crypto::CryptoProvider;
 use snafu::{ResultExt, Snafu};
 
@@ -60,19 +60,17 @@ impl<H: GatewayHandler> OutboundGatewayBuilder<H> {
     pub async fn build_and_run(self) -> Result<(), OutboundGatewayCreateError> {
         let key_pair =
             KeyPair::from_pem(self.ca_private_key.as_str()).context(ParsePrivateKeySnafu)?;
-        let ca_cert = CertificateParams::from_ca_cert_pem(self.ca_certificate.as_str())
-            .context(ParseCertificateSnafu)?
-            .self_signed(&key_pair)
+        let issuer = Issuer::from_ca_cert_pem(self.ca_certificate.as_str(), key_pair)
             .context(ParseCertificateSnafu)?;
 
         let crypto_provider = self.crypto_provider;
 
-        let ca = RcgenAuthority::new(key_pair, ca_cert, 1_000, crypto_provider.clone());
+        let ca = RcgenAuthority::new(issuer, 1_000, crypto_provider.clone());
 
         let builder = Proxy::builder()
             .with_addr(self.listen_address)
             .with_ca(ca)
-            .with_rustls_client(crypto_provider);
+            .with_rustls_connector(crypto_provider);
 
         let proxy = builder
             .with_http_handler(HandlerAdapter::new(self.handler, self.http_client))

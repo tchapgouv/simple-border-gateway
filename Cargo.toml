@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 axum = { version = "0.8", features = ["http2", "tokio"] }
 
-hudsucker = { version = "0.23", default-features = false, features = [
+hudsucker = { version = "0.24", default-features = false, features = [
     "http2",
     "rcgen-ca",
     "rustls-client",
@@ -19,7 +19,7 @@ reqwest = { version = "0.12", default-features = false, features = [
 ] }
 
 rustls = { version = "0.23" }
-rcgen = { version = "0.13", default-features = false }
+rcgen = { version = "0.14", default-features = false }
 
 hyper = { version = "1" }
 
@@ -48,7 +48,7 @@ serde_json = "1"
 futures = "0.3"
 http-body-util = "0.1"
 
-dns-lookup = "2"
+dns-lookup = "3"
 
 regex = "1"
 
@@ -56,7 +56,7 @@ toml = "0.9"
 
 [dev-dependencies]
 axum-test = "18"
-httpmock = "0.7"
+httpmock = "0.8"
 tempfile = "3"
 rand = "0.9"
 # lazy_static = "1"
