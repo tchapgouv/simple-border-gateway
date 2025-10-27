@@ -1,6 +1,6 @@
 [package]
 name = "simple-border-gateway"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [dependencies]
@@ -54,6 +54,8 @@ dns-lookup = "2"
 regex = "1"
 
 toml = "0.9"
+
+notify = "8"
 
 [dev-dependencies]
 axum-test = "18"

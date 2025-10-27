@@ -1,5 +1,5 @@
 use clap::Parser;
-use log::{debug, error, info, LevelFilter};
+use log::{LevelFilter, debug, error, info, trace, warn};
 use simple_border_gateway::http_gateway::inbound::InboundGatewayBuilder;
 use simple_border_gateway::http_gateway::outbound::OutboundGatewayBuilder;
 use simple_border_gateway::inbound::InboundHandler;
@@ -8,12 +8,15 @@ use simple_border_gateway::outbound::OutboundHandler;
 use simple_border_gateway::util::{
     create_http_client, crypto_provider, install_crypto_provider, read_pem,
 };
+use notify::{recommended_watcher, RecursiveMode, Watcher};
 use snafu::{Report, ResultExt, Whatever};
+use tokio::task::JoinHandle;
 
 use std::env;
 use std::path::PathBuf;
 use std::process::exit;
 use std::str::FromStr;
+use std::sync::mpsc;
 use std::{collections::BTreeMap, fs};
 
 use ruma::{serde::Base64, signatures::PublicKeyMap};
@@ -39,51 +42,11 @@ struct Cli {
     config_file: PathBuf,
 }
 
-#[snafu::report]
-#[tokio::main]
-async fn main() -> Result<(), Whatever> {
-    let cli = Cli::parse();
-    println!("Starting simple-border-gateway");
-
-    let app_log_level = cli.log_level.unwrap_or(
-        LevelFilter::from_str(env::var("LOG_LEVEL").unwrap_or_default().as_str())
-            .unwrap_or(LevelFilter::Info),
-    );
-
-    let mut builder = env_logger::Builder::new();
-    if app_log_level < log::LevelFilter::Debug {
-        builder.format_target(false);
-    }
-
-    builder
-        // Only log errors for dependencies by default
-        .filter_level(log::LevelFilter::Error)
-        .filter_module("simple_border_gateway", app_log_level)
-        .format_timestamp_millis()
-        .target(env_logger::Target::Stdout)
-        .parse_default_env()
-        .init();
-
-    debug!("Logging initialized");
-
-    if cli.inbound_only && cli.outbound_only {
-        error!("Cannot use --inbound-only and --outbound-only at the same time");
-        std::process::exit(1);
-    }
-
-    debug!("Reading config file {}", cli.config_file.display());
-
-    let config_toml_str =
-        fs::read_to_string(cli.config_file).whatever_context("Failed to read config file")?;
-    let config: BorderGatewayConfig =
-        toml::from_str(&config_toml_str).whatever_context("Failed to deserialize config file")?;
-
-    debug!("Config file loaded");
-
-    install_crypto_provider();
-
-    debug!("Crypto provider installed");
-
+async fn start_services(
+    config: BorderGatewayConfig,
+    cli: &Cli,
+) -> Result<Vec<JoinHandle<()>>, Whatever> {
+    debug!("Configuration loaded");
     let mut domain_server_name_map = BTreeMap::new();
     let mut target_base_urls: BTreeMap<String, String> = BTreeMap::new();
 
@@ -112,10 +75,7 @@ async fn main() -> Result<(), Whatever> {
         public_key_map.insert(hs.server_name, verify_keys);
     }
 
-    debug!("Configuration initialized");
-
     let mut tasks = vec![];
-
     let name_resolver = NameResolver::new(domain_server_name_map);
 
     if let Some(inbound_config) = config.inbound_proxy {
@@ -194,10 +154,123 @@ async fn main() -> Result<(), Whatever> {
             info!("Outbound proxy initialized");
         }
     }
+    Ok(tasks)
+}
 
-    for task in tasks {
-        let _ = task.await;
+#[snafu::report]
+#[tokio::main]
+async fn main() -> Result<(), Whatever> {
+    let cli = Cli::parse();
+    // Inbound/Outbound tasks. Made external to be able to abort them on config reload.
+    let mut tasks: Vec<JoinHandle<()>>;
+    // MPSC Channels used by the file watcher
+    let (tx, rx) = mpsc::channel();
+    let mut watcher = recommended_watcher(move |res| {
+        let _ = tx.send(res);
+    }).whatever_context("Failed to create file watcher")?;
+
+    println!("Starting simple-border-gateway");
+    let app_log_level = cli.log_level.unwrap_or(
+        LevelFilter::from_str(env::var("LOG_LEVEL").unwrap_or_default().as_str())
+            .unwrap_or(LevelFilter::Info),
+    );
+
+    let mut builder = env_logger::Builder::new();
+    if app_log_level < log::LevelFilter::Debug {
+        builder.format_target(false);
     }
 
-    Ok(())
+    builder
+        // Only log errors for dependencies by default
+        .filter_level(log::LevelFilter::Error)
+        .filter_module("simple_border_gateway", app_log_level)
+        .format_timestamp_millis()
+        .target(env_logger::Target::Stdout)
+        .parse_default_env()
+        .init();
+
+    debug!("Logging initialized");
+
+    if cli.inbound_only && cli.outbound_only {
+        error!("Cannot use --inbound-only and --outbound-only at the same time");
+        std::process::exit(1);
+    }
+
+    install_crypto_provider();
+    debug!("Crypto provider installed");
+    
+    // Starting to watch the config file
+    watcher.watch(&cli.config_file, RecursiveMode::NonRecursive).whatever_context("Failed to watch config file")?;
+
+    // Initial loading of the config file
+    // This could have been inside the loop as well, but it was left out of it for simplicity
+    // as the loop only contains the auto reload logic.
+    debug!("Initial reading of config file {}", cli.config_file.display());
+    let config_toml_str =
+        fs::read_to_string(&cli.config_file).whatever_context("Failed to read config file")?;
+    let config: BorderGatewayConfig =
+        toml::from_str(&config_toml_str).whatever_context("Failed to deserialize config file")?;
+
+    tasks = start_services(config, &cli).await?;
+
+    // Auto reload logic
+    loop {
+        // Waiting for a file change event.
+        // This is very simplistic on purpose, as it will reload the config on any file change event.
+        let command = rx.recv().whatever_context("The watch channel closed")?;
+        trace!("File change event received: {:?}", command);
+
+        // Was the config file created or modified?
+        match command {
+            Ok(event) => {
+                match event.kind {
+                    notify::EventKind::Create(_) | notify::EventKind::Modify(notify::event::ModifyKind::Data(_)) => {
+                        info!("Reloading config file {}...", cli.config_file.display());
+                        let config_toml_str = match fs::read_to_string(&cli.config_file) {
+                            Ok(s) => s,
+                            Err(e) => {
+                                error!("Failed to read config file: {}", e);
+                                warn!("The services will not be reloaded due to config errors");
+                                continue;
+                            }
+                        };
+                        let config: BorderGatewayConfig = match toml::from_str(&config_toml_str) {
+                            Ok(c) => c,
+                            Err(e) => {
+                                error!("Failed to deserialize config file: {}", e);
+                                warn!("The services will not be reloaded due to config errors");
+                                continue;
+                            }
+                        };
+                        // Aborting existing tasks
+                        info!("New configuration is valid and loaded. Aborting existing tasks...");
+                        for task in tasks.iter() {
+                            task.abort();
+                        }
+                        // Starting new tasks with the new config
+                        info!("Starting the services with the new config...");
+                        tasks = match start_services(config, &cli).await {
+                            Ok(t) => t,
+                            Err(e) => {
+                                error!("Failed to start services with new config: {}", e);
+                                error!("Exiting due to failure to start services with new config");
+                                exit(1);
+                            }
+                        };
+                    },
+                    notify::EventKind::Modify(modify_kind) => {
+                        trace!("Ignoring modify kind: {:?}", modify_kind);
+                    },
+                    // Ignoring all other types of events, as they are not relevant for config reload
+                    notify::EventKind::Access(_) |
+                    notify::EventKind::Any |
+                    notify::EventKind::Remove(_) |
+                    notify::EventKind::Other => {
+                        trace!("Ignoring event kind: {:?}", event.kind);
+                    }
+                }
+            },
+            Err(_) => todo!(),
+        }
+    }
 }
