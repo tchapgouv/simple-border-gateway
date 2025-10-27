@@ -1,5 +1,6 @@
 use clap::Parser;
-use log::{LevelFilter, debug, error, info, trace, warn};
+use log::{debug, error, info, trace, warn, LevelFilter};
+use notify::{recommended_watcher, RecursiveMode, Watcher};
 use simple_border_gateway::http_gateway::inbound::InboundGatewayBuilder;
 use simple_border_gateway::http_gateway::outbound::OutboundGatewayBuilder;
 use simple_border_gateway::inbound::InboundHandler;
@@ -8,7 +9,6 @@ use simple_border_gateway::outbound::OutboundHandler;
 use simple_border_gateway::util::{
     create_http_client, crypto_provider, install_crypto_provider, read_pem,
 };
-use notify::{recommended_watcher, RecursiveMode, Watcher};
 use snafu::{Report, ResultExt, Whatever};
 use tokio::task::JoinHandle;
 
@@ -167,7 +167,8 @@ async fn main() -> Result<(), Whatever> {
     let (tx, rx) = mpsc::channel();
     let mut watcher = recommended_watcher(move |res| {
         let _ = tx.send(res);
-    }).whatever_context("Failed to create file watcher")?;
+    })
+    .whatever_context("Failed to create file watcher")?;
 
     println!("Starting simple-border-gateway");
     let app_log_level = cli.log_level.unwrap_or(
@@ -198,14 +199,19 @@ async fn main() -> Result<(), Whatever> {
 
     install_crypto_provider();
     debug!("Crypto provider installed");
-    
+
     // Starting to watch the config file
-    watcher.watch(&cli.config_file, RecursiveMode::NonRecursive).whatever_context("Failed to watch config file")?;
+    watcher
+        .watch(&cli.config_file, RecursiveMode::NonRecursive)
+        .whatever_context("Failed to watch config file")?;
 
     // Initial loading of the config file
     // This could have been inside the loop as well, but it was left out of it for simplicity
     // as the loop only contains the auto reload logic.
-    debug!("Initial reading of config file {}", cli.config_file.display());
+    debug!(
+        "Initial reading of config file {}",
+        cli.config_file.display()
+    );
     let config_toml_str =
         fs::read_to_string(&cli.config_file).whatever_context("Failed to read config file")?;
     let config: BorderGatewayConfig =
@@ -224,7 +230,8 @@ async fn main() -> Result<(), Whatever> {
         match command {
             Ok(event) => {
                 match event.kind {
-                    notify::EventKind::Create(_) | notify::EventKind::Modify(notify::event::ModifyKind::Data(_)) => {
+                    notify::EventKind::Create(_)
+                    | notify::EventKind::Modify(notify::event::ModifyKind::Data(_)) => {
                         info!("Reloading config file {}...", cli.config_file.display());
                         let config_toml_str = match fs::read_to_string(&cli.config_file) {
                             Ok(s) => s,
@@ -257,19 +264,19 @@ async fn main() -> Result<(), Whatever> {
                                 exit(1);
                             }
                         };
-                    },
+                    }
                     notify::EventKind::Modify(modify_kind) => {
                         trace!("Ignoring modify kind: {:?}", modify_kind);
-                    },
+                    }
                     // Ignoring all other types of events, as they are not relevant for config reload
-                    notify::EventKind::Access(_) |
-                    notify::EventKind::Any |
-                    notify::EventKind::Remove(_) |
-                    notify::EventKind::Other => {
+                    notify::EventKind::Access(_)
+                    | notify::EventKind::Any
+                    | notify::EventKind::Remove(_)
+                    | notify::EventKind::Other => {
                         trace!("Ignoring event kind: {:?}", event.kind);
                     }
                 }
-            },
+            }
             Err(_) => todo!(),
         }
     }
