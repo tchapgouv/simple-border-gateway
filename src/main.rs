@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{Parser, error};
 use log::{debug, error, info, trace, warn, LevelFilter};
 use notify::{recommended_watcher, RecursiveMode, Watcher};
 use simple_border_gateway::http_gateway::inbound::InboundGatewayBuilder;
@@ -277,7 +277,9 @@ async fn main() -> Result<(), Whatever> {
                     }
                 }
             }
-            Err(_) => todo!(),
+            Err(e) => {
+                error!("Watch error: {:?}", e);
+            },
         }
     }
 }
