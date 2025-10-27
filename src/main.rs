@@ -16,8 +16,8 @@ use std::env;
 use std::path::PathBuf;
 use std::process::exit;
 use std::str::FromStr;
-use std::sync::mpsc;
 use std::{collections::BTreeMap, fs};
+use tokio::sync::mpsc;
 
 use ruma::{serde::Base64, signatures::PublicKeyMap};
 use simple_border_gateway::config::BorderGatewayConfig;
@@ -164,11 +164,12 @@ async fn main() -> Result<(), Whatever> {
     // Inbound/Outbound tasks. Made external to be able to abort them on config reload.
     let mut tasks: Vec<JoinHandle<()>>;
     // MPSC Channels used by the file watcher
-    let (tx, rx) = mpsc::channel();
+    let (tx, mut rx) = mpsc::unbounded_channel();
     let mut watcher = recommended_watcher(move |res| {
         let _ = tx.send(res);
     })
     .whatever_context("Failed to create file watcher")?;
+    let mut old_config: String;
 
     println!("Starting simple-border-gateway");
     let app_log_level = cli.log_level.unwrap_or(
@@ -217,69 +218,95 @@ async fn main() -> Result<(), Whatever> {
     let config: BorderGatewayConfig =
         toml::from_str(&config_toml_str).whatever_context("Failed to deserialize config file")?;
 
+    // This is just here to avoid to reload the config if it hasn't really changed
+    old_config = config_toml_str;
+
     tasks = start_services(config, &cli).await?;
 
     // Auto reload logic
     loop {
-        // Waiting for a file change event.
-        // This is very simplistic on purpose, as it will reload the config on any file change event.
-        let command = rx.recv().whatever_context("The watch channel closed")?;
-        trace!("File change event received: {:?}", command);
+        tokio::select! {
+            // Handle Ctrl+C
+            _ = tokio::signal::ctrl_c() => {
+                info!("Received Ctrl+C, shutting down...");
+                for task in tasks.iter() {
+                    task.abort();
+                }
+                break;
+            }
+            // Handle file change events
+            command = rx.recv() => {
+                let command_watcher = match command {
+                    Some(c) => c,
+                    None => {
+                        error!("File watcher channel closed unexpectedly");
+                        break;
+                    }
+                };
+                trace!("File change event received: {:?}", command_watcher);
 
-        // Was the config file created or modified?
-        match command {
-            Ok(event) => {
-                match event.kind {
-                    notify::EventKind::Create(_)
-                    | notify::EventKind::Modify(notify::event::ModifyKind::Data(_)) => {
-                        info!("Reloading config file {}...", cli.config_file.display());
-                        let config_toml_str = match fs::read_to_string(&cli.config_file) {
-                            Ok(s) => s,
-                            Err(e) => {
-                                error!("Failed to read config file: {}", e);
-                                warn!("The services will not be reloaded due to config errors");
-                                continue;
+                // Was the config file created or modified?
+                match command_watcher {
+                    Ok(event) => {
+                        match event.kind {
+                            notify::EventKind::Create(_)
+                            | notify::EventKind::Modify(notify::event::ModifyKind::Data(_)) => {
+                                info!("Reloading config file {}...", cli.config_file.display());
+                                let config_toml_str = match fs::read_to_string(&cli.config_file) {
+                                    Ok(s) => s,
+                                    Err(e) => {
+                                        error!("Failed to read config file: {}", e);
+                                        warn!("The services will not be reloaded due to config errors");
+                                        continue;
+                                    }
+                                };
+                                if config_toml_str == old_config {
+                                    info!("Config file unchanged, skipping reload");
+                                    continue;
+                                }
+                                let config: BorderGatewayConfig = match toml::from_str(&config_toml_str) {
+                                    Ok(c) => c,
+                                    Err(e) => {
+                                        error!("Failed to deserialize config file: {}", e);
+                                        warn!("The services will not be reloaded due to config errors");
+                                        continue;
+                                    }
+                                };
+                                // Aborting existing tasks
+                                info!("New configuration is valid and loaded. Aborting existing tasks...");
+                                for task in tasks.iter() {
+                                    task.abort();
+                                }
+                                // Starting new tasks with the new config
+                                info!("Starting the services with the new config...");
+                                tasks = match start_services(config, &cli).await {
+                                    Ok(t) => t,
+                                    Err(e) => {
+                                        error!("Failed to start services with new config: {}", e);
+                                        error!("Exiting due to failure to start services with new config");
+                                        exit(1);
+                                    }
+                                };
+                                old_config = config_toml_str;
                             }
-                        };
-                        let config: BorderGatewayConfig = match toml::from_str(&config_toml_str) {
-                            Ok(c) => c,
-                            Err(e) => {
-                                error!("Failed to deserialize config file: {}", e);
-                                warn!("The services will not be reloaded due to config errors");
-                                continue;
+                            notify::EventKind::Modify(modify_kind) => {
+                                trace!("Ignoring modify kind: {:?}", modify_kind);
                             }
-                        };
-                        // Aborting existing tasks
-                        info!("New configuration is valid and loaded. Aborting existing tasks...");
-                        for task in tasks.iter() {
-                            task.abort();
+                            // Ignoring all other types of events, as they are not relevant for config reload
+                            notify::EventKind::Access(_)
+                            | notify::EventKind::Any
+                            | notify::EventKind::Remove(_)
+                            | notify::EventKind::Other => {
+                                trace!("Ignoring event kind: {:?}", event.kind);
+                            }
                         }
-                        // Starting new tasks with the new config
-                        info!("Starting the services with the new config...");
-                        tasks = match start_services(config, &cli).await {
-                            Ok(t) => t,
-                            Err(e) => {
-                                error!("Failed to start services with new config: {}", e);
-                                error!("Exiting due to failure to start services with new config");
-                                exit(1);
-                            }
-                        };
                     }
-                    notify::EventKind::Modify(modify_kind) => {
-                        trace!("Ignoring modify kind: {:?}", modify_kind);
-                    }
-                    // Ignoring all other types of events, as they are not relevant for config reload
-                    notify::EventKind::Access(_)
-                    | notify::EventKind::Any
-                    | notify::EventKind::Remove(_)
-                    | notify::EventKind::Other => {
-                        trace!("Ignoring event kind: {:?}", event.kind);
-                    }
+                    Err(e) => {
+                        error!("Watch error: {:?}", e);
+                    },
                 }
             }
-            Err(e) => {
-                error!("Watch error: {:?}", e);
-            },
         }
     }
+    Ok(())
 }
