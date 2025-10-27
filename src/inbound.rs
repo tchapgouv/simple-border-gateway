@@ -14,7 +14,7 @@ use crate::{
 use http::{Request, StatusCode};
 use log::Level;
 use reqwest::Body;
-use ruma::{serde::Base64, server_util::authorization::XMatrix};
+use ruma::{api::federation::authentication::XMatrix, serde::Base64};
 
 #[derive(Clone)]
 pub struct InboundHandler {
