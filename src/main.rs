@@ -1,4 +1,4 @@
-use clap::{Parser, error};
+use clap::Parser;
 use log::{debug, error, info, trace, warn, LevelFilter};
 use notify::{recommended_watcher, RecursiveMode, Watcher};
 use simple_border_gateway::http_gateway::inbound::InboundGatewayBuilder;
