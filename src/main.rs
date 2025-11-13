@@ -206,7 +206,8 @@ async fn main() -> Result<(), Whatever> {
     let config: BorderGatewayConfig =
         toml::from_str(&config_toml_str).whatever_context("Failed to deserialize config file")?;
 
-    // This is just here to avoid to reload the config if it hasn't really changed
+    // This is just here to avoid to reload the config if it hasn't really changed.
+    // This is very very basic on purpose, and can be improved in many ways if needed.
     old_config = config_toml_str;
 
     tasks = start_services(config, &cli).await?;
@@ -225,7 +226,7 @@ async fn main() -> Result<(), Whatever> {
                 }
                 break;
             }
-            // Handle file change events
+            // Handle SIGHUP
             _ = hup.recv() => {
                 info!("Received SIGHUP. Reloading config file {}...", cli.config_file.display());
                 let config_toml_str = match fs::read_to_string(&cli.config_file) {
