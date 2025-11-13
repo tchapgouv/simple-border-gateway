@@ -1,5 +1,5 @@
 use clap::Parser;
-use log::{debug, error, info, LevelFilter};
+use log::{debug, error, info, warn, LevelFilter};
 use simple_border_gateway::http_gateway::inbound::InboundGatewayBuilder;
 use simple_border_gateway::http_gateway::outbound::OutboundGatewayBuilder;
 use simple_border_gateway::inbound::InboundHandler;
@@ -9,6 +9,8 @@ use simple_border_gateway::util::{
     create_http_client, crypto_provider, install_crypto_provider, read_pem,
 };
 use snafu::{Report, ResultExt, Whatever};
+use tokio::signal::unix::{signal, SignalKind};
+use tokio::task::JoinHandle;
 
 use std::env;
 use std::path::PathBuf;
@@ -39,51 +41,11 @@ struct Cli {
     config_file: PathBuf,
 }
 
-#[snafu::report]
-#[tokio::main]
-async fn main() -> Result<(), Whatever> {
-    let cli = Cli::parse();
-    println!("Starting simple-border-gateway");
-
-    let app_log_level = cli.log_level.unwrap_or(
-        LevelFilter::from_str(env::var("LOG_LEVEL").unwrap_or_default().as_str())
-            .unwrap_or(LevelFilter::Info),
-    );
-
-    let mut builder = env_logger::Builder::new();
-    if app_log_level < log::LevelFilter::Debug {
-        builder.format_target(false);
-    }
-
-    builder
-        // Only log errors for dependencies by default
-        .filter_level(log::LevelFilter::Error)
-        .filter_module("simple_border_gateway", app_log_level)
-        .format_timestamp_millis()
-        .target(env_logger::Target::Stdout)
-        .parse_default_env()
-        .init();
-
-    debug!("Logging initialized");
-
-    if cli.inbound_only && cli.outbound_only {
-        error!("Cannot use --inbound-only and --outbound-only at the same time");
-        std::process::exit(1);
-    }
-
-    debug!("Reading config file {}", cli.config_file.display());
-
-    let config_toml_str =
-        fs::read_to_string(cli.config_file).whatever_context("Failed to read config file")?;
-    let config: BorderGatewayConfig =
-        toml::from_str(&config_toml_str).whatever_context("Failed to deserialize config file")?;
-
-    debug!("Config file loaded");
-
-    install_crypto_provider();
-
-    debug!("Crypto provider installed");
-
+async fn start_services(
+    config: BorderGatewayConfig,
+    cli: &Cli,
+) -> Result<Vec<JoinHandle<()>>, Whatever> {
+    debug!("Configuration loaded");
     let mut domain_server_name_map = BTreeMap::new();
     let mut target_base_urls: BTreeMap<String, String> = BTreeMap::new();
 
@@ -112,10 +74,7 @@ async fn main() -> Result<(), Whatever> {
         public_key_map.insert(hs.server_name, verify_keys);
     }
 
-    debug!("Configuration initialized");
-
     let mut tasks = vec![];
-
     let name_resolver = NameResolver::new(domain_server_name_map);
 
     if let Some(inbound_config) = config.inbound_proxy {
@@ -194,10 +153,120 @@ async fn main() -> Result<(), Whatever> {
             info!("Outbound proxy initialized");
         }
     }
+    Ok(tasks)
+}
 
-    for task in tasks {
-        let _ = task.await;
+#[snafu::report]
+#[tokio::main]
+async fn main() -> Result<(), Whatever> {
+    let cli = Cli::parse();
+    // Inbound/Outbound tasks. Made external to be able to abort them on config reload.
+    let mut tasks: Vec<JoinHandle<()>>;
+    let mut old_config: String;
+
+    println!("Starting simple-border-gateway");
+    let app_log_level = cli.log_level.unwrap_or(
+        LevelFilter::from_str(env::var("LOG_LEVEL").unwrap_or_default().as_str())
+            .unwrap_or(LevelFilter::Info),
+    );
+
+    let mut builder = env_logger::Builder::new();
+    if app_log_level < log::LevelFilter::Debug {
+        builder.format_target(false);
     }
 
+    builder
+        // Only log errors for dependencies by default
+        .filter_level(log::LevelFilter::Error)
+        .filter_module("simple_border_gateway", app_log_level)
+        .format_timestamp_millis()
+        .target(env_logger::Target::Stdout)
+        .parse_default_env()
+        .init();
+
+    debug!("Logging initialized");
+
+    if cli.inbound_only && cli.outbound_only {
+        error!("Cannot use --inbound-only and --outbound-only at the same time");
+        std::process::exit(1);
+    }
+
+    install_crypto_provider();
+    debug!("Crypto provider installed");
+
+    // Initial loading of the config file
+    // This could have been inside the loop as well, but it was left out of it for simplicity
+    // as the loop only contains the auto reload logic.
+    debug!(
+        "Initial reading of config file {}",
+        cli.config_file.display()
+    );
+    let config_toml_str =
+        fs::read_to_string(&cli.config_file).whatever_context("Failed to read config file")?;
+    let config: BorderGatewayConfig =
+        toml::from_str(&config_toml_str).whatever_context("Failed to deserialize config file")?;
+
+    // This is just here to avoid to reload the config if it hasn't really changed.
+    // This is very very basic on purpose, and can be improved in many ways if needed.
+    old_config = config_toml_str;
+
+    tasks = start_services(config, &cli).await?;
+
+    let mut hup =
+        signal(SignalKind::hangup()).whatever_context("Failed to start SIGHUP handler")?;
+
+    // Auto reload logic
+    loop {
+        tokio::select! {
+            // Handle Ctrl+C
+            _ = tokio::signal::ctrl_c() => {
+                info!("Received Ctrl+C, shutting down...");
+                for task in tasks.iter() {
+                    task.abort();
+                }
+                break;
+            }
+            // Handle SIGHUP
+            _ = hup.recv() => {
+                info!("Received SIGHUP. Reloading config file {}...", cli.config_file.display());
+                let config_toml_str = match fs::read_to_string(&cli.config_file) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        error!("Failed to read config file: {}", e);
+                        warn!("The services will not be reloaded due to config errors");
+                        continue;
+                    }
+                };
+                if config_toml_str == old_config {
+                    info!("Config file unchanged, skipping reload");
+                    continue;
+                }
+                let config: BorderGatewayConfig = match toml::from_str(&config_toml_str) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        error!("Failed to deserialize config file: {}", e);
+                        warn!("The services will not be reloaded due to config errors");
+                        continue;
+                    }
+                };
+                // Aborting existing tasks
+                info!("New configuration is valid and loaded. Aborting existing tasks...");
+                for task in tasks.iter() {
+                    task.abort();
+                }
+                // Starting new tasks with the new config
+                info!("Starting the services with the new config...");
+                tasks = match start_services(config, &cli).await {
+                    Ok(t) => t,
+                    Err(e) => {
+                        error!("Failed to start services with new config: {}", e);
+                        error!("Exiting due to failure to start services with new config");
+                        exit(1);
+                    }
+                };
+                old_config = config_toml_str;
+            }
+        }
+    }
     Ok(())
 }
