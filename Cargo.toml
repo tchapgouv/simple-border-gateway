@@ -1,6 +1,6 @@
 [package]
 name = "simple-border-gateway"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [dependencies]
@@ -32,7 +32,7 @@ ruma = { version = "0.13", default-features = false, features = [
     "federation-api",
 ] }
 
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 
 bytes = "1"
 tracing = "0.1"
