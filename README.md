@@ -2,8 +2,6 @@
 
 This software aims to help opening a private federation hosted on a segmented network securely to other Matrix homeservers.
 
-For full configuration details and deployment guidance, see the HOWTO.
-
 ## Scope
 
 ### All traffic
@@ -30,5 +28,7 @@ but we should probably do it.
 We should probably pin the CA root certificate to help against MITM attacks.
 
 Signature of authenticated requests are not checked since they are coming from our owned trusted servers.
+
+### Deploy the service
 
 See the [HOWTO guide](./docs/HOWTO.md) for full deployment instructions.
