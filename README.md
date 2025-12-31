@@ -28,3 +28,7 @@ but we should probably do it.
 We should probably pin the CA root certificate to help against MITM attacks.
 
 Signature of authenticated requests are not checked since they are coming from our owned trusted servers.
+
+### Deploy the service
+
+See the [HOWTO guide](./docs/HOWTO.md) for full deployment instructions.
