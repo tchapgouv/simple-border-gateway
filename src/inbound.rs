@@ -14,7 +14,7 @@ use crate::{
 use http::{Request, StatusCode};
 use log::Level;
 use reqwest::Body;
-use ruma::{api::federation::authentication::XMatrix, serde::Base64};
+use ruma::serde::Base64;
 
 #[derive(Clone)]
 pub struct InboundHandler {
@@ -59,22 +59,14 @@ impl InboundHandler {
         }
     }
 
-    async fn check_signature(&self, mut ctx: RequestContext, body: Body) -> RequestOrResponse {
-        let Some(auth_header) = ctx.parts.headers.get("Authorization") else {
-            ctx.log(Level::Warn, "401 - unauthorized, no authorization header");
-            return create_matrix_response(StatusCode::UNAUTHORIZED, "M_UNAUTHORIZED").into();
-        };
-
-        let Ok(x_matrix) = XMatrix::parse(auth_header.to_str().unwrap_or_default()) else {
+    async fn check_signature(&self, ctx: RequestContext, body: Body) -> RequestOrResponse {
+        let Some(x_matrix) = &ctx.xmatrix else {
             ctx.log(
                 Level::Warn,
-                "401 - unauthorized, invalid X-Matrix auth header",
+                "401 - unauthorized, unavailable or invalid X-Matrix auth header",
             );
             return create_matrix_response(StatusCode::UNAUTHORIZED, "M_UNAUTHORIZED").into();
         };
-
-        // let's override the origin with the server name from the X-Matrix header
-        ctx.origin_server_name = x_matrix.origin.clone().to_string();
 
         if !self
             .public_key_map

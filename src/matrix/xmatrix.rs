@@ -24,10 +24,9 @@ struct SignedRequest {
 pub(crate) fn verify_signature(
     public_key_map: &PublicKeyMap,
     parts: &Parts,
-    x_matrix: XMatrix,
+    x_matrix: &XMatrix,
     body: &str,
 ) -> Result<(), Whatever> {
-    // TODO: parse xmatrix header here directly?
     let content_json: Option<Value> = serde_json::from_str(body).ok();
 
     let signatures = BTreeMap::from([(
@@ -39,7 +38,7 @@ pub(crate) fn verify_signature(
         method: parts.method.to_string(),
         uri: parts.uri.to_string(),
         origin: x_matrix.origin.as_str().to_owned(),
-        destination: x_matrix.destination.map(|d| d.to_string()),
+        destination: x_matrix.destination.clone().map(|d| d.to_string()),
         content: content_json,
         signatures,
     };

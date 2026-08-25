@@ -6,6 +6,7 @@ use http_body_util::{BodyExt, Limited};
 use log::{log, Level};
 use regex::Regex;
 use reqwest::Body;
+use ruma::api::federation::authentication::XMatrix;
 use snafu::{ResultExt as _, Whatever};
 
 use crate::{
@@ -88,6 +89,7 @@ pub(crate) async fn to_bytes(body: Body, limit: usize) -> Option<Bytes> {
 
 pub(crate) struct RequestContext {
     pub(crate) parts: Parts,
+    pub(crate) xmatrix: Option<XMatrix>,
     pub(crate) origin_server_name: String,
     pub(crate) destination_server_name: String,
     pub(crate) destination_host: String,
@@ -101,11 +103,25 @@ impl RequestContext {
         client_addr: SocketAddr,
         name_resolver: &mut NameResolver,
     ) -> Self {
-        let origin_ip = extract_origin_ip(&parts, &direction, &client_addr);
+        let xmatrix = parts
+            .headers
+            .get("Authorization")
+            .and_then(|auth_header| auth_header.to_str().ok())
+            .and_then(|auth_str| XMatrix::parse(auth_str).ok());
+
+        let origin_server_name = if let Some(xmatrix) = &xmatrix {
+            xmatrix.origin.to_string()
+        } else {
+            // Origin server name not available in auth header, let's try to guess it from the client IP
+            let origin_ip = extract_origin_ip(&parts, &direction, &client_addr);
+            name_resolver.ip_to_server_name(&origin_ip)
+        };
+
         let destination_host = extract_destination_host(&parts, &direction).to_string();
         Self {
             parts,
-            origin_server_name: name_resolver.ip_to_server_name(&origin_ip),
+            xmatrix,
+            origin_server_name,
             destination_server_name: name_resolver.domain_to_server_name(&destination_host),
             destination_host,
             log_prefix: match direction {
