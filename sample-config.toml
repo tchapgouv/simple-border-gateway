@@ -33,3 +33,4 @@ server_name = "matrix.org"
 federation_domain = "matrix-federation.matrix.org"
 client_domain = "matrix-client.matrix.org"
 verify_keys = { "ed25519:a_RXGa" = "l8Hft5qXKn1vfHrg3p4+W8gELQVo8N13JkluMfmn2sQ" }
+ruleset = "sample-ruleset"  # This is optional. If not provided, the default ruleset will be used.

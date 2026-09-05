@@ -1,4 +1,6 @@
 use simple_border_gateway::config::BorderGatewayConfig;
+use simple_border_gateway::matrix::spec::{AuthType, EndpointType};
+use std::fs;
 
 #[test]
 fn test_base_url_deserialization() {
@@ -102,4 +104,103 @@ fn test_config_deserialization() {
         outbound.allowed_non_matrix_regexes_dangerous,
         vec!["https://ntfy\\.sh/.*"]
     );
+}
+
+#[test]
+fn test_config_load_includes_external_ruleset_changes() {
+    let config_dir = tempfile::tempdir().expect("failed to create temporary config directory");
+    let config_path = config_dir.path().join("config.toml");
+    let ruleset_path = config_dir.path().join("custom.toml");
+
+    fs::write(
+        &config_path,
+        r#"
+            internal_homeservers = []
+
+            [[external_homeservers]]
+            server_name = "external.example"
+            federation_domain = "federation.external.example"
+            client_domain = "client.external.example"
+            verify_keys = {}
+            ruleset = "custom"
+        "#,
+    )
+    .expect("failed to write main config");
+    fs::write(
+        &ruleset_path,
+        r#"
+            [[additional_endpoints]]
+            id = "custom_endpoint"
+            path = "/_matrix/custom"
+
+            [[override_rules]]
+            endpoint = "custom_endpoint"
+            inbound_action = "allow"
+        "#,
+    )
+    .expect("failed to write initial ruleset");
+
+    let original = BorderGatewayConfig::load(&config_path).expect("failed to load initial config");
+    let unchanged =
+        BorderGatewayConfig::load(&config_path).expect("failed to reload unchanged config");
+    assert!(original == unchanged);
+    assert_eq!(
+        original.rulesets[0].additional_endpoints[0].auth_type,
+        AuthType::CheckSignature
+    );
+    assert_eq!(
+        original.rulesets[0].additional_endpoints[0].endpoint_type,
+        EndpointType::Federation
+    );
+
+    fs::write(
+        &ruleset_path,
+        r#"
+            [[additional_endpoints]]
+            id = "custom_endpoint"
+            path = "/_matrix/custom"
+
+            [[override_rules]]
+            endpoint = "custom_endpoint"
+            inbound_action = "reject"
+        "#,
+    )
+    .expect("failed to update ruleset");
+
+    let changed = BorderGatewayConfig::load(&config_path).expect("failed to load updated config");
+    assert!(original != changed);
+}
+
+#[test]
+fn test_config_rejects_unknown_auth_type_during_loading() {
+    let config_dir = tempfile::tempdir().expect("failed to create temporary config directory");
+    let config_path = config_dir.path().join("config.toml");
+    let ruleset_path = config_dir.path().join("custom.toml");
+
+    fs::write(
+        &config_path,
+        r#"
+            internal_homeservers = []
+
+            [[external_homeservers]]
+            server_name = "external.example"
+            federation_domain = "federation.external.example"
+            client_domain = "client.external.example"
+            verify_keys = {}
+            ruleset = "custom"
+        "#,
+    )
+    .expect("failed to write main config");
+    fs::write(
+        &ruleset_path,
+        r#"
+            [[additional_endpoints]]
+            id = "custom_endpoint"
+            path = "/_matrix/custom"
+            auth_type = "AnythingGoes"
+        "#,
+    )
+    .expect("failed to write invalid ruleset");
+
+    assert!(BorderGatewayConfig::load(&config_path).is_err());
 }

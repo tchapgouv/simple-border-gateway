@@ -1,0 +1,25 @@
+# Override rules reference endpoints by their ID.
+# Default endpoint IDs can be found in the documentation / source code (src/matrix/spec.rs).
+
+[[override_rules]]
+endpoint = "key_v2_query_post"
+inbound_action = "allow"
+outbound_action = "allow"
+
+[[override_rules]]
+endpoint = "key_v2_query_get"
+inbound_action = "allow"
+outbound_action = "reject"
+
+# Example: define a custom endpoint and set its actions
+[[additional_endpoints]]
+id = "my_custom_endpoint"
+path = "/_matrix/custom/v1/something"
+method = "GET"
+auth_type = "CheckSignature"
+endpoint_type = "Federation"
+
+[[override_rules]]
+endpoint = "my_custom_endpoint"
+inbound_action = "allow"
+outbound_action = "allow"

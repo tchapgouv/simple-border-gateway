@@ -1,213 +1,325 @@
-// Reference spec v1.15
-
+use crate::util::RegexEndpoint;
 use http::Method;
+use once_cell::sync::Lazy;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, PartialEq)]
-pub(crate) enum EndpointType {
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub enum EndpointType {
+    #[default]
     Federation,
     WellKnown,
     LegacyMedia,
 }
 
-#[derive(Clone, PartialEq)]
-pub(crate) enum AuthType {
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
+pub enum AuthType {
     Unauthenticated,
+    #[default]
     CheckSignature,
 }
 
-#[derive(Clone)]
-pub(crate) struct Endpoint {
-    pub(crate) path: &'static str,
-    pub(crate) method: Option<Method>,
-    pub(crate) endpoint_type: EndpointType,
-    pub(crate) auth_type: AuthType,
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Action {
+    Allow,
+    Reject,
 }
 
-impl Endpoint {
-    const fn new(path: &'static str, method: Option<Method>) -> Self {
-        Self {
-            path,
-            method,
-            endpoint_type: EndpointType::Federation,
-            auth_type: AuthType::CheckSignature,
-        }
+// Built-in default ruleset containing all standard Matrix federation endpoints.
+// Override rules from external toml files take precedence over these defaults.
+// Those endpoints are ALL allowed.
+pub(crate) static DEFAULT_RULESET: Lazy<Vec<RegexEndpoint>> = Lazy::new(|| {
+    use AuthType::*;
+    use EndpointType::*;
+
+    vec![
+        // 2.1 Resolving server names
+        RegexEndpoint::new_allowed(
+            "well_known_server",
+            "/.well-known/matrix/server",
+            Some(Method::GET),
+            Unauthenticated,
+            WellKnown,
+        )
+        .expect("Invalid endpoint definition"),
+        // 2.2 Server implementation
+        RegexEndpoint::new_allowed(
+            "federation_version",
+            "/_matrix/federation/v1/version",
+            Some(Method::GET),
+            Unauthenticated,
+            Federation,
+        )
+        .expect("Invalid endpoint definition"),
+        // 2.3 Retrieving server keys
+        RegexEndpoint::new_allowed(
+            "key_v2_server",
+            "/_matrix/key/v2/server",
+            Some(Method::GET),
+            Unauthenticated,
+            Federation,
+        )
+        .expect("Invalid endpoint definition"),
+        RegexEndpoint::new_allowed(
+            "key_v2_query_post",
+            "/_matrix/key/v2/query",
+            Some(Method::POST),
+            Unauthenticated,
+            Federation,
+        )
+        .expect("Invalid endpoint definition"),
+        RegexEndpoint::new_allowed(
+            "key_v2_query_get",
+            "/_matrix/key/v2/query/{server_name}",
+            Some(Method::GET),
+            Unauthenticated,
+            Federation,
+        )
+        .expect("Invalid endpoint definition"),
+        // 4. Transactions
+        RegexEndpoint::new_allowed_signed_fed(
+            "send_transaction",
+            "/_matrix/federation/v1/send/{txnId}",
+            Some(Method::PUT),
+        )
+        .expect("Invalid endpoint definition"),
+        // 5.1.5 Retrieving event authorization information
+        RegexEndpoint::new_allowed_signed_fed(
+            "event_auth",
+            "/_matrix/federation/v1/event_auth/{roomId}/{eventId}",
+            Some(Method::GET),
+        )
+        .expect("Invalid endpoint definition"),
+        // 8. Backfilling and retrieving missing events
+        RegexEndpoint::new_allowed_signed_fed(
+            "backfill",
+            "/_matrix/federation/v1/backfill/{roomId}",
+            Some(Method::GET),
+        )
+        .expect("Invalid endpoint definition"),
+        RegexEndpoint::new_allowed_signed_fed(
+            "get_missing_events",
+            "/_matrix/federation/v1/get_missing_events/{roomId}",
+            Some(Method::POST),
+        )
+        .expect("Invalid endpoint definition"),
+        // 9. Retrieving events
+        RegexEndpoint::new_allowed_signed_fed(
+            "get_event",
+            "/_matrix/federation/v1/event/{eventId}",
+            Some(Method::GET),
+        )
+        .expect("Invalid endpoint definition"),
+        RegexEndpoint::new_allowed_signed_fed(
+            "get_state",
+            "/_matrix/federation/v1/state/{roomId}",
+            Some(Method::GET),
+        )
+        .expect("Invalid endpoint definition"),
+        RegexEndpoint::new_allowed_signed_fed(
+            "get_state_ids",
+            "/_matrix/federation/v1/state_ids/{roomId}",
+            Some(Method::GET),
+        )
+        .expect("Invalid endpoint definition"),
+        RegexEndpoint::new_allowed_signed_fed(
+            "timestamp_to_event",
+            "/_matrix/federation/v1/timestamp_to_event/{roomId}",
+            Some(Method::GET),
+        )
+        .expect("Invalid endpoint definition"),
+        // 10. Joining rooms
+        RegexEndpoint::new_allowed_signed_fed(
+            "make_join",
+            "/_matrix/federation/v1/make_join/{roomId}/{userId}",
+            Some(Method::GET),
+        )
+        .expect("Invalid endpoint definition"),
+        RegexEndpoint::new_allowed_signed_fed(
+            "send_join_v1",
+            "/_matrix/federation/v1/send_join/{roomId}/{eventId}",
+            Some(Method::PUT),
+        )
+        .expect("Invalid endpoint definition"),
+        RegexEndpoint::new_allowed_signed_fed(
+            "send_join_v2",
+            "/_matrix/federation/v2/send_join/{roomId}/{eventId}",
+            Some(Method::PUT),
+        )
+        .expect("Invalid endpoint definition"),
+        // 11. Knocking
+        RegexEndpoint::new_allowed_signed_fed(
+            "make_knock",
+            "/_matrix/federation/v1/make_knock/{roomId}/{userId}",
+            Some(Method::GET),
+        )
+        .expect("Invalid endpoint definition"),
+        RegexEndpoint::new_allowed_signed_fed(
+            "send_knock",
+            "/_matrix/federation/v1/send_knock/{roomId}/{eventId}",
+            Some(Method::PUT),
+        )
+        .expect("Invalid endpoint definition"),
+        // 12. Inviting
+        RegexEndpoint::new_allowed_signed_fed(
+            "invite_v1",
+            "/_matrix/federation/v1/invite/{roomId}/{eventId}",
+            Some(Method::PUT),
+        )
+        .expect("Invalid endpoint definition"),
+        RegexEndpoint::new_allowed_signed_fed(
+            "invite_v2",
+            "/_matrix/federation/v2/invite/{roomId}/{eventId}",
+            Some(Method::PUT),
+        )
+        .expect("Invalid endpoint definition"),
+        // 13. Leaving rooms
+        RegexEndpoint::new_allowed_signed_fed(
+            "make_leave",
+            "/_matrix/federation/v1/make_leave/{roomId}/{userId}",
+            Some(Method::GET),
+        )
+        .expect("Invalid endpoint definition"),
+        RegexEndpoint::new_allowed_signed_fed(
+            "send_leave_v1",
+            "/_matrix/federation/v1/send_leave/{roomId}/{eventId}",
+            Some(Method::PUT),
+        )
+        .expect("Invalid endpoint definition"),
+        RegexEndpoint::new_allowed_signed_fed(
+            "send_leave_v2",
+            "/_matrix/federation/v2/send_leave/{roomId}/{eventId}",
+            Some(Method::PUT),
+        )
+        .expect("Invalid endpoint definition"),
+        // 14. Third-party invites
+        RegexEndpoint::new_allowed(
+            "3pid_onbind",
+            "/_matrix/federation/v1/3pid/onbind",
+            Some(Method::PUT),
+            Unauthenticated,
+            Federation,
+        )
+        .expect("Invalid endpoint definition"),
+        RegexEndpoint::new_allowed_signed_fed(
+            "exchange_third_party_invite",
+            "/_matrix/federation/v1/exchange_third_party_invite/{roomId}",
+            Some(Method::PUT),
+        )
+        .expect("Invalid endpoint definition"),
+        // 15. Public room directory
+        RegexEndpoint::new_allowed_signed_fed(
+            "public_rooms_get",
+            "/_matrix/federation/v1/publicRooms",
+            Some(Method::GET),
+        )
+        .expect("Invalid endpoint definition"),
+        RegexEndpoint::new_allowed_signed_fed(
+            "public_rooms_post",
+            "/_matrix/federation/v1/publicRooms",
+            Some(Method::POST),
+        )
+        .expect("Invalid endpoint definition"),
+        // 16. Spaces
+        RegexEndpoint::new_allowed_signed_fed(
+            "spaces_hierarchy",
+            "/_matrix/federation/v1/hierarchy/{roomId}",
+            Some(Method::GET),
+        )
+        .expect("Invalid endpoint definition"),
+        // 20. Querying for information
+        RegexEndpoint::new_allowed_signed_fed(
+            "query_directory",
+            "/_matrix/federation/v1/query/directory",
+            Some(Method::GET),
+        )
+        .expect("Invalid endpoint definition"),
+        RegexEndpoint::new_allowed_signed_fed(
+            "query_profile",
+            "/_matrix/federation/v1/query/profile",
+            Some(Method::GET),
+        )
+        .expect("Invalid endpoint definition"),
+        RegexEndpoint::new_allowed_signed_fed(
+            "query_generic",
+            "/_matrix/federation/v1/query/{queryType}",
+            Some(Method::GET),
+        )
+        .expect("Invalid endpoint definition"),
+        // 21. OpenID
+        RegexEndpoint::new_allowed(
+            "openid_userinfo",
+            "/_matrix/federation/v1/openid/userinfo",
+            Some(Method::GET),
+            Unauthenticated,
+            Federation,
+        )
+        .expect("Invalid endpoint definition"),
+        // 22. Device management
+        RegexEndpoint::new_allowed_signed_fed(
+            "user_devices",
+            "/_matrix/federation/v1/user/devices/{userId}",
+            Some(Method::GET),
+        )
+        .expect("Invalid endpoint definition"),
+        // 23. End-to-end encryption
+        RegexEndpoint::new_allowed_signed_fed(
+            "user_keys_claim",
+            "/_matrix/federation/v1/user/keys/claim",
+            Some(Method::POST),
+        )
+        .expect("Invalid endpoint definition"),
+        RegexEndpoint::new_allowed_signed_fed(
+            "user_keys_query",
+            "/_matrix/federation/v1/user/keys/query",
+            Some(Method::POST),
+        )
+        .expect("Invalid endpoint definition"),
+        // 25. Content repository
+        RegexEndpoint::new_allowed_signed_fed(
+            "media_download",
+            "/_matrix/federation/v1/media/download/{mediaId}",
+            Some(Method::GET),
+        )
+        .expect("Invalid endpoint definition"),
+        RegexEndpoint::new_allowed_signed_fed(
+            "media_thumbnail",
+            "/_matrix/federation/v1/media/thumbnail/{mediaId}",
+            Some(Method::GET),
+        )
+        .expect("Invalid endpoint definition"),
+        // 25bis. Legacy content repository (any method)
+        RegexEndpoint::new_allowed(
+            "legacy_media",
+            "/_matrix/media/{path}",
+            None,
+            Unauthenticated,
+            LegacyMedia,
+        )
+        .expect("Invalid endpoint definition"),
+        // Needed for legacy content repository discovery
+        RegexEndpoint::new_allowed(
+            "well_known_client",
+            "/.well-known/matrix/client",
+            Some(Method::GET),
+            Unauthenticated,
+            WellKnown,
+        )
+        .expect("Invalid endpoint definition"),
+    ]
+});
+
+#[cfg(test)]
+mod tests {
+    use super::{EndpointType, DEFAULT_RULESET};
+
+    #[test]
+    fn only_discovery_endpoints_are_well_known() {
+        let well_known_ids: Vec<&str> = DEFAULT_RULESET
+            .iter()
+            .filter(|endpoint| endpoint.rule.endpoint_type == EndpointType::WellKnown)
+            .map(|endpoint| endpoint.id.as_str())
+            .collect();
+
+        assert_eq!(well_known_ids, ["well_known_server", "well_known_client"]);
     }
 }
-
-pub(crate) const ENDPOINTS: [Endpoint; 39] = [
-    // 2. Server discovery
-
-    // 2.1 Resolving server names
-    Endpoint {
-        path: "/.well-known/matrix/server",
-        method: Some(Method::GET),
-        auth_type: AuthType::Unauthenticated,
-        endpoint_type: EndpointType::WellKnown,
-    },
-    // 2.2 Server implementation
-    Endpoint {
-        path: "/_matrix/federation/v1/version",
-        method: Some(Method::GET),
-        auth_type: AuthType::Unauthenticated,
-        endpoint_type: EndpointType::Federation,
-    },
-    // 2.3 Retrieving server keys
-    Endpoint {
-        path: "/_matrix/key/v2/server",
-        method: Some(Method::GET),
-        auth_type: AuthType::Unauthenticated,
-        endpoint_type: EndpointType::Federation,
-    },
-    Endpoint {
-        path: "/_matrix/key/v2/query",
-        method: Some(Method::POST),
-        auth_type: AuthType::Unauthenticated,
-        endpoint_type: EndpointType::Federation,
-    },
-    Endpoint {
-        path: "/_matrix/key/v2/query/{server_name}",
-        method: Some(Method::GET),
-        auth_type: AuthType::Unauthenticated,
-        endpoint_type: EndpointType::Federation,
-    },
-    // 4. Transactions
-    Endpoint::new("/_matrix/federation/v1/send/{txnId}", Some(Method::PUT)),
-    // 5. PDUs
-
-    // 5.1.5. Retrieving event authorization information
-    Endpoint::new(
-        "/_matrix/federation/v1/event_auth/{roomId}/{eventId}",
-        Some(Method::GET),
-    ),
-    // 8. Backfilling and retrieving missing events
-    Endpoint::new(
-        "/_matrix/federation/v1/backfill/{roomId}",
-        Some(Method::GET),
-    ),
-    Endpoint::new(
-        "/_matrix/federation/v1/get_missing_events/{roomId}",
-        Some(Method::POST),
-    ),
-    // 9. Retrieving events
-    Endpoint::new("/_matrix/federation/v1/event/{eventId}", Some(Method::GET)),
-    Endpoint::new("/_matrix/federation/v1/state/{roomId}", Some(Method::GET)),
-    Endpoint::new(
-        "/_matrix/federation/v1/state_ids/{roomId}",
-        Some(Method::GET),
-    ),
-    Endpoint::new(
-        "/_matrix/federation/v1/timestamp_to_event/{roomId}",
-        Some(Method::GET),
-    ),
-    // 10. Joining Rooms
-    Endpoint::new(
-        "/_matrix/federation/v1/make_join/{roomId}/{userId}",
-        Some(Method::GET),
-    ),
-    // DEPRECATED
-    Endpoint::new(
-        "/_matrix/federation/v1/send_join/{roomId}/{eventId}",
-        Some(Method::PUT),
-    ),
-    Endpoint::new(
-        "/_matrix/federation/v2/send_join/{roomId}/{eventId}",
-        Some(Method::PUT),
-    ),
-    // 11. Knocking upon a room
-    Endpoint::new(
-        "/_matrix/federation/v1/make_knock/{roomId}/{userId}",
-        Some(Method::GET),
-    ),
-    Endpoint::new(
-        "/_matrix/federation/v1/send_knock/{roomId}/{eventId}",
-        Some(Method::PUT),
-    ),
-    // 12. Inviting to a room
-    Endpoint::new(
-        "/_matrix/federation/v1/invite/{roomId}/{eventId}",
-        Some(Method::PUT),
-    ),
-    Endpoint::new(
-        "/_matrix/federation/v2/invite/{roomId}/{eventId}",
-        Some(Method::PUT),
-    ),
-    // 13. Leaving Rooms (Rejecting Invites)
-    Endpoint::new(
-        "/_matrix/federation/v1/make_leave/{roomId}/{userId}",
-        Some(Method::GET),
-    ),
-    // DEPRECATED
-    Endpoint::new(
-        "/_matrix/federation/v1/send_leave/{roomId}/{eventId}",
-        Some(Method::PUT),
-    ),
-    Endpoint::new(
-        "/_matrix/federation/v2/send_leave/{roomId}/{eventId}",
-        Some(Method::PUT),
-    ),
-    // 14. Third-party invites
-    // 14.2 Cases where an association doesn’t exist for a third-party identifier
-    Endpoint {
-        path: "/_matrix/federation/v1/3pid/onbind",
-        method: Some(Method::PUT),
-        auth_type: AuthType::Unauthenticated,
-        endpoint_type: EndpointType::Federation,
-    },
-    Endpoint::new(
-        "/_matrix/federation/v1/exchange_third_party_invite/{roomId}",
-        Some(Method::PUT),
-    ),
-    // 15. Public Room Directory
-    Endpoint::new("/_matrix/federation/v1/publicRooms", Some(Method::GET)),
-    Endpoint::new("/_matrix/federation/v1/publicRooms", Some(Method::POST)),
-    // 16. Spaces
-    Endpoint::new(
-        "/_matrix/federation/v1/hierarchy/{roomId}",
-        Some(Method::GET),
-    ),
-    // 20. Querying for information
-    Endpoint::new("/_matrix/federation/v1/query/directory", Some(Method::GET)),
-    Endpoint::new("/_matrix/federation/v1/query/profile", Some(Method::GET)),
-    Endpoint::new(
-        "/_matrix/federation/v1/query/{queryType}",
-        Some(Method::GET),
-    ),
-    // 21. OpenID
-    Endpoint {
-        path: "/_matrix/federation/v1/openid/userinfo",
-        method: Some(Method::GET),
-        auth_type: AuthType::Unauthenticated,
-        endpoint_type: EndpointType::Federation,
-    },
-    // 22. Device Management
-    Endpoint::new(
-        "/_matrix/federation/v1/user/devices/{userId}",
-        Some(Method::GET),
-    ),
-    // 23. End-to-End Encryption
-    Endpoint::new("/_matrix/federation/v1/user/keys/claim", Some(Method::POST)),
-    Endpoint::new("/_matrix/federation/v1/user/keys/query", Some(Method::POST)),
-    // 25. Content Repository
-    Endpoint::new(
-        "/_matrix/federation/v1/media/download/{mediaId}",
-        Some(Method::GET),
-    ),
-    Endpoint::new(
-        "/_matrix/federation/v1/media/thumbnail/{mediaId}",
-        Some(Method::GET),
-    ),
-    // 25bis. Legacy Content Repository (part of the client spec)
-    Endpoint {
-        path: "/_matrix/media/{*path}",
-        method: None,
-        auth_type: AuthType::Unauthenticated,
-        endpoint_type: EndpointType::LegacyMedia,
-    },
-    // Needed because of legacy content repository endpoint
-    Endpoint {
-        path: "/.well-known/matrix/client",
-        method: Some(Method::GET),
-        auth_type: AuthType::Unauthenticated,
-        endpoint_type: EndpointType::WellKnown,
-    },
-];

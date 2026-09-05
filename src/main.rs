@@ -6,17 +6,18 @@ use simple_border_gateway::inbound::InboundHandler;
 use simple_border_gateway::matrix::util::NameResolver;
 use simple_border_gateway::outbound::OutboundHandler;
 use simple_border_gateway::util::{
-    create_http_client, crypto_provider, install_crypto_provider, read_pem,
+    build_regex_endpoints_from_endpoint_configs, compile_override_rules, create_http_client,
+    crypto_provider, install_crypto_provider, read_pem, CompiledRuleset,
 };
 use snafu::{Report, ResultExt, Whatever};
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::task::JoinHandle;
 
+use std::collections::BTreeMap;
 use std::env;
 use std::path::PathBuf;
 use std::process::exit;
 use std::str::FromStr;
-use std::{collections::BTreeMap, fs};
 
 use ruma::{serde::Base64, signatures::PublicKeyMap};
 use simple_border_gateway::config::BorderGatewayConfig;
@@ -39,6 +40,10 @@ struct Cli {
     /// Sets a custom config file
     #[arg(short = 'c', long, value_name = "FILE", default_value = "config.toml")]
     config_file: PathBuf,
+
+    /// Reject every default endpoint that is not explicitly allowed by an override rule.
+    #[arg(long, default_value = "false")]
+    reject_all_by_default: bool,
 }
 
 async fn start_services(
@@ -60,9 +65,32 @@ async fn start_services(
         target_base_urls.insert(hs.server_name, hs.target_base_url);
     }
 
+    let mut named_rulesets: BTreeMap<String, CompiledRuleset> = BTreeMap::new();
+    for ruleset in &config.rulesets {
+        let additional_endpoints =
+            build_regex_endpoints_from_endpoint_configs(&ruleset.additional_endpoints)
+                .whatever_context(format!(
+                    "Failed to build additional endpoints for ruleset '{}'",
+                    ruleset.name
+                ))?;
+        let action_overrides =
+            compile_override_rules(&ruleset.override_rules).whatever_context(format!(
+                "Failed to compile override rules for ruleset '{}'",
+                ruleset.name
+            ))?;
+        named_rulesets.insert(
+            ruleset.name.clone(),
+            CompiledRuleset {
+                additional_endpoints,
+                action_overrides,
+            },
+        );
+    }
+
     let mut allowed_federation_domains: BTreeMap<String, String> = BTreeMap::new();
     let mut allowed_client_domains: BTreeMap<String, String> = BTreeMap::new();
     let mut public_key_map: PublicKeyMap = BTreeMap::new();
+    let mut server_rulesets: BTreeMap<String, CompiledRuleset> = BTreeMap::new();
 
     for hs in config.external_homeservers {
         debug!(
@@ -81,6 +109,34 @@ async fn start_services(
                 Base64::parse(v).whatever_context("Failed to parse verify key as base64")?,
             );
         }
+
+        let compiled_ruleset = match &hs.ruleset {
+            Some(name) => match named_rulesets.get(name) {
+                Some(e) => {
+                    info!(
+                        "Using override ruleset '{}' for homeserver '{}'",
+                        name, hs.server_name
+                    );
+                    e.clone()
+                }
+                None => {
+                    snafu::whatever!(
+                        "Homeserver '{}' references unknown ruleset '{}'",
+                        hs.server_name,
+                        name
+                    )
+                }
+            },
+            None => {
+                info!("Using default ruleset for homeserver '{}'", hs.server_name);
+                CompiledRuleset {
+                    additional_endpoints: vec![],
+                    action_overrides: BTreeMap::new(),
+                }
+            }
+        };
+        server_rulesets.insert(hs.server_name.clone(), compiled_ruleset);
+
         public_key_map.insert(hs.server_name, verify_keys);
     }
 
@@ -93,7 +149,12 @@ async fn start_services(
         } else {
             let http_client = create_http_client(inbound_config.additional_root_certs, None)
                 .whatever_context("Failed to create inbound http client")?;
-            let handler = InboundHandler::new(name_resolver.clone(), public_key_map);
+            let handler = InboundHandler::new(
+                name_resolver.clone(),
+                public_key_map,
+                server_rulesets.clone(),
+                cli.reject_all_by_default,
+            );
 
             let listen_address = inbound_config
                 .listen_address
@@ -130,6 +191,8 @@ async fn start_services(
                 allowed_federation_domains,
                 allowed_client_domains,
                 outbound_config.allowed_non_matrix_regexes_dangerous,
+                server_rulesets,
+                cli.reject_all_by_default,
             )
             .whatever_context("Failed to create outbound handler")?;
 
@@ -170,9 +233,6 @@ async fn start_services(
 #[tokio::main]
 async fn main() -> Result<(), Whatever> {
     let cli = Cli::parse();
-    // Inbound/Outbound tasks. Made external to be able to abort them on config reload.
-    let mut tasks: Vec<JoinHandle<()>>;
-    let mut old_config: String;
 
     println!("Starting simple-border-gateway");
     let app_log_level = cli.log_level.unwrap_or(
@@ -204,6 +264,10 @@ async fn main() -> Result<(), Whatever> {
     install_crypto_provider();
     debug!("Crypto provider installed");
 
+    if cli.reject_all_by_default {
+        info!("Reject all by default mode enabled. The default ruleset will reject all endpoints, and only endpoints explicitly allowed by override rules will be accepted.");
+    }
+
     // Initial loading of the config file
     // This could have been inside the loop as well, but it was left out of it for simplicity
     // as the loop only contains the auto reload logic.
@@ -211,16 +275,10 @@ async fn main() -> Result<(), Whatever> {
         "Initial reading of config file {}",
         cli.config_file.display()
     );
-    let config_toml_str =
-        fs::read_to_string(&cli.config_file).whatever_context("Failed to read config file")?;
-    let config: BorderGatewayConfig =
-        toml::from_str(&config_toml_str).whatever_context("Failed to deserialize config file")?;
+    let mut old_config = BorderGatewayConfig::load(&cli.config_file)?;
 
-    // This is just here to avoid to reload the config if it hasn't really changed.
-    // This is very very basic on purpose, and can be improved in many ways if needed.
-    old_config = config_toml_str;
-
-    tasks = start_services(config, &cli).await?;
+    // Inbound/Outbound tasks. Kept so they can be aborted on config reload.
+    let mut tasks: Vec<JoinHandle<()>> = start_services(old_config.clone(), &cli).await?;
 
     let mut hup =
         signal(SignalKind::hangup()).whatever_context("Failed to start SIGHUP handler")?;
@@ -239,26 +297,18 @@ async fn main() -> Result<(), Whatever> {
             // Handle SIGHUP
             _ = hup.recv() => {
                 info!("Received SIGHUP. Reloading config file {}...", cli.config_file.display());
-                let config_toml_str = match fs::read_to_string(&cli.config_file) {
-                    Ok(s) => s,
+                let config = match BorderGatewayConfig::load(&cli.config_file) {
+                    Ok(config) => config,
                     Err(e) => {
-                        error!("Failed to read config file: {}", e);
+                        error!("Failed to load configuration: {}", e);
                         warn!("The services will not be reloaded due to config errors");
                         continue;
                     }
                 };
-                if config_toml_str == old_config {
-                    info!("Config file unchanged, skipping reload");
+                if config == old_config {
+                    info!("Configuration unchanged, skipping reload");
                     continue;
                 }
-                let config: BorderGatewayConfig = match toml::from_str(&config_toml_str) {
-                    Ok(c) => c,
-                    Err(e) => {
-                        error!("Failed to deserialize config file: {}", e);
-                        warn!("The services will not be reloaded due to config errors");
-                        continue;
-                    }
-                };
                 // Aborting existing tasks
                 info!("New configuration is valid and loaded. Aborting existing tasks...");
                 for task in tasks.iter() {
@@ -266,7 +316,7 @@ async fn main() -> Result<(), Whatever> {
                 }
                 // Starting new tasks with the new config
                 info!("Starting the services with the new config...");
-                tasks = match start_services(config, &cli).await {
+                tasks = match start_services(config.clone(), &cli).await {
                     Ok(t) => t,
                     Err(e) => {
                         error!("Failed to start services with new config: {}", e);
@@ -274,7 +324,7 @@ async fn main() -> Result<(), Whatever> {
                         exit(1);
                     }
                 };
-                old_config = config_toml_str;
+                old_config = config;
             }
         }
     }

@@ -5,11 +5,11 @@ use crate::{
         util::create_status_response, GatewayDirection, GatewayHandler, RequestOrResponse,
     },
     matrix::{
-        spec::AuthType,
+        spec::{Action, AuthType, DEFAULT_RULESET},
         util::{create_matrix_response, NameResolver},
         xmatrix::verify_signature,
     },
-    util::{get_matching_endpoint, to_bytes, RequestContext, REGEX_ALLOWED_ENDPOINTS},
+    util::{resolve_endpoint, to_bytes, CompiledRuleset, RequestContext},
 };
 use http::{Request, StatusCode};
 use log::Level;
@@ -20,6 +20,10 @@ use ruma::serde::Base64;
 pub struct InboundHandler {
     name_resolver: NameResolver,
     public_key_map: BTreeMap<String, BTreeMap<String, Base64>>,
+    /// Per-server-name compiled ruleset.
+    server_rulesets: BTreeMap<String, CompiledRuleset>,
+    /// When true, every default endpoint is rejected unless an override rule explicitly allows it.
+    reject_all_by_default: bool,
 }
 
 impl GatewayHandler for InboundHandler {
@@ -33,17 +37,41 @@ impl GatewayHandler for InboundHandler {
 
         let ctx = RequestContext::new(parts, direction, client_addr, &mut self.name_resolver);
 
-        let Some(endpoint) = get_matching_endpoint(&ctx.parts, &REGEX_ALLOWED_ENDPOINTS) else {
+        // Call the main helper to resolve the endpoint with the active/applicable ruleset (with the default one for fallback), if it exist.
+        // This will return on purpose the inbound and outbound action, but we are of course only interested in the inbound action here...
+        let Some(resolved_endpoint) = resolve_endpoint(
+            &ctx.parts,
+            &ctx.origin_server_name,
+            &self.server_rulesets,
+            DEFAULT_RULESET.as_slice(),
+        ) else {
             ctx.log(Level::Warn, "404 - not found, unknown endpoint");
             return create_status_response(StatusCode::NOT_FOUND).into();
         };
 
-        match endpoint.auth_type {
+        // When reject all by default is set, every default endpoint requires an explicit allow.
+        if self.reject_all_by_default && !resolved_endpoint.is_override {
+            ctx.log(
+                Level::Warn,
+                "403 - forbidden, endpoint rejected by ruleset due to policy",
+            );
+            return create_matrix_response(StatusCode::FORBIDDEN, "M_FORBIDDEN").into();
+        }
+
+        // Verifying the auth type, and if a specific endpoint is authorized or not.
+        match resolved_endpoint.endpoint.rule.auth_type {
             AuthType::Unauthenticated => {
+                if resolved_endpoint.inbound_action == Action::Reject {
+                    ctx.log(Level::Warn, "403 - forbidden, endpoint rejected by ruleset");
+                    return create_matrix_response(StatusCode::FORBIDDEN, "M_FORBIDDEN").into();
+                }
                 ctx.log(Level::Info, "forward, unauthenticated endpoint");
                 Request::from_parts(ctx.parts, body).into()
             }
-            AuthType::CheckSignature => self.check_signature(ctx, body).await,
+            AuthType::CheckSignature => {
+                self.check_signature(ctx, body, resolved_endpoint.inbound_action)
+                    .await
+            }
         }
     }
 }
@@ -52,14 +80,23 @@ impl InboundHandler {
     pub fn new(
         name_resolver: NameResolver,
         public_key_map: BTreeMap<String, BTreeMap<String, Base64>>,
+        server_rulesets: BTreeMap<String, CompiledRuleset>,
+        reject_all_by_default: bool,
     ) -> Self {
         Self {
             name_resolver,
             public_key_map,
+            server_rulesets,
+            reject_all_by_default,
         }
     }
 
-    async fn check_signature(&self, ctx: RequestContext, body: Body) -> RequestOrResponse {
+    async fn check_signature(
+        &self,
+        ctx: RequestContext,
+        body: Body,
+        inbound_action: Action,
+    ) -> RequestOrResponse {
         let Some(x_matrix) = &ctx.xmatrix else {
             ctx.log(
                 Level::Warn,
@@ -74,6 +111,11 @@ impl InboundHandler {
         {
             ctx.log(Level::Warn, "401 - unauthorized, unauthorized server");
             return create_matrix_response(StatusCode::UNAUTHORIZED, "M_UNAUTHORIZED").into();
+        }
+
+        if inbound_action == Action::Reject {
+            ctx.log(Level::Warn, "403 - forbidden, endpoint rejected by ruleset");
+            return create_matrix_response(StatusCode::FORBIDDEN, "M_FORBIDDEN").into();
         }
 
         let Some(body) = to_bytes(body, 1024 * 1024 * 10).await else {

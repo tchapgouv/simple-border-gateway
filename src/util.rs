@@ -1,21 +1,24 @@
+use std::collections::BTreeMap;
 use std::net::SocketAddr;
 
 use bytes::Bytes;
-use http::{request::Parts, uri::Scheme};
+use http::{request::Parts, uri::Scheme, Method};
 use http_body_util::{BodyExt, Limited};
 use log::{log, Level};
 use regex::Regex;
 use reqwest::Body;
 use ruma::api::federation::authentication::XMatrix;
 use snafu::{ResultExt as _, Whatever};
+use tracing::debug;
 
 use crate::{
+    config::EndpointConfig,
     http_gateway::{
         util::{extract_destination_host, extract_origin_ip},
         GatewayDirection,
     },
     matrix::{
-        spec::{Endpoint, ENDPOINTS},
+        spec::{Action, AuthType, EndpointType},
         util::NameResolver,
     },
 };
@@ -33,50 +36,251 @@ pub fn install_crypto_provider() {
     let _ = crypto_provider::default_provider().install_default();
 }
 
-#[derive(Clone)]
-pub(crate) struct RegexEndpoint {
+/// Runtime representation of a filtering rule that owns its path string.
+#[derive(Clone, Debug)]
+pub struct RuntimeRule {
+    pub method: Option<Method>,
+    pub endpoint_type: EndpointType,
+    pub auth_type: AuthType,
+    pub inbound_action: Action,
+    pub outbound_action: Action,
+}
+
+#[derive(Clone, Debug)]
+pub struct RegexEndpoint {
+    pub id: String,
     regex: Regex,
-    endpoint: Endpoint,
+    pub rule: RuntimeRule,
+}
+
+impl RegexEndpoint {
+    /// Build a new endpoint with the specified arguments.
+    pub fn new(
+        id: &str,
+        path: &str,
+        method: Option<Method>,
+        auth_type: AuthType,
+        endpoint_type: EndpointType,
+        inbound_action: Action,
+        outbound_action: Action,
+    ) -> Result<Self, regex::Error> {
+        Ok(Self {
+            id: id.to_string(),
+            regex: path_to_regex(path)?,
+            rule: RuntimeRule {
+                method,
+                endpoint_type,
+                auth_type,
+                inbound_action,
+                outbound_action,
+            },
+        })
+    }
+
+    /// Build a new allowed (inbound and outbound) endpoint with the specified arguments.
+    /// Mainly added to avoid allowing by hand all default actions
+    pub fn new_allowed(
+        id: &str,
+        path: &str,
+        method: Option<Method>,
+        auth_type: AuthType,
+        endpoint_type: EndpointType,
+    ) -> Result<Self, regex::Error> {
+        Ok(Self {
+            id: id.to_string(),
+            regex: path_to_regex(path)?,
+            rule: RuntimeRule {
+                method,
+                endpoint_type,
+                auth_type,
+                inbound_action: Action::Allow,
+                outbound_action: Action::Allow,
+            },
+        })
+    }
+
+    /// Build an allowed endpoint using signed federation defaults.
+    pub fn new_allowed_signed_fed(
+        id: &str,
+        path: &str,
+        method: Option<Method>,
+    ) -> Result<Self, regex::Error> {
+        Self::new_allowed(
+            id,
+            path,
+            method,
+            AuthType::CheckSignature,
+            EndpointType::Federation,
+        )
+    }
+}
+
+/// A compiled ruleset combining additional endpoint definitions with action overrides.
+#[derive(Clone)]
+pub struct CompiledRuleset {
+    pub additional_endpoints: Vec<RegexEndpoint>,
+    pub action_overrides: BTreeMap<String, (Action, Action)>,
+}
+
+/// Result of endpoint resolution.
+/// Contains the matched endpoint and the action to take for inbound and outbound requests.
+/// Will also return if this endpoint is an override of a default endpoint in the ruleset.
+pub(crate) struct ResolvedEndpoint<'a> {
+    pub(crate) endpoint: &'a RegexEndpoint,
+    pub(crate) inbound_action: Action,
+    pub(crate) outbound_action: Action,
+    pub(crate) is_override: bool,
 }
 
 #[allow(clippy::unwrap_used, reason = "lazy static regex")]
 static REPLACE_VARIABLES_RE: std::sync::LazyLock<Regex> =
     std::sync::LazyLock::new(|| Regex::new("\\{[^\\}]*}").unwrap());
 
-impl RegexEndpoint {
-    fn from(endpoint: Endpoint) -> Self {
-        // escape dots so they don't get interpreted
-        let mut regex = endpoint.path.replace(".", "\\.");
-        // replace variables in brackets with .*
-        regex = REPLACE_VARIABLES_RE.replace_all(&regex, ".*").to_string();
-        #[allow(
-            clippy::unwrap_used,
-            reason = " inputs statically defined in matrix_spec.rs"
-        )]
-        let regex = Regex::new(&regex).unwrap();
-        RegexEndpoint { regex, endpoint }
-    }
+fn path_to_regex(path: &str) -> Result<Regex, regex::Error> {
+    let escaped = path.replace('.', "\\.");
+    let pattern = REPLACE_VARIABLES_RE.replace_all(&escaped, ".*");
+    Regex::new(&pattern)
 }
 
-pub(crate) static REGEX_ALLOWED_ENDPOINTS: std::sync::LazyLock<Vec<RegexEndpoint>> =
-    std::sync::LazyLock::new(|| Vec::from_iter(ENDPOINTS.map(RegexEndpoint::from)));
+/// Convert additional endpoint configs into RegexEndpoints.
+/// Actions default to Reject/Reject since they are expected to be set via override_rules.
+pub fn build_regex_endpoints_from_endpoint_configs(
+    endpoints: &[EndpointConfig],
+) -> Result<Vec<RegexEndpoint>, Whatever> {
+    endpoints
+        .iter()
+        .map(|e| {
+            let method = e
+                .method
+                .as_deref()
+                .map(|m| {
+                    Method::from_bytes(m.as_bytes())
+                        .whatever_context(format!("Invalid method '{}' in endpoint '{}'", m, e.id))
+                })
+                .transpose()?;
+
+            let regex = path_to_regex(&e.path).whatever_context(format!(
+                "Invalid path pattern '{}' in endpoint '{}'",
+                e.path, e.id
+            ))?;
+
+            Ok(RegexEndpoint {
+                id: e.id.clone(),
+                regex,
+                rule: RuntimeRule {
+                    method,
+                    endpoint_type: e.endpoint_type,
+                    auth_type: e.auth_type,
+                    inbound_action: Action::Reject,
+                    outbound_action: Action::Reject,
+                },
+            })
+        })
+        .collect()
+}
+
+/// Compile override rules into a map of endpoint ID → (inbound_action, outbound_action).
+pub fn compile_override_rules(
+    rules: &[crate::config::OverrideRuleConfig],
+) -> Result<BTreeMap<String, (Action, Action)>, Whatever> {
+    let mut map = BTreeMap::new();
+    for r in rules {
+        let inbound_action = match r.inbound_action.as_deref() {
+            None | Some("reject") | Some("disallow") => Action::Reject,
+            Some("allow") => Action::Allow,
+            Some(other) => snafu::whatever!(
+                "Unknown inbound_action '{}' for endpoint '{}' (expected 'allow' or 'reject')",
+                other,
+                r.endpoint
+            ),
+        };
+
+        let outbound_action = match r.outbound_action.as_deref() {
+            None | Some("reject") | Some("disallow") => Action::Reject,
+            Some("allow") => Action::Allow,
+            Some(other) => snafu::whatever!(
+                "Unknown outbound_action '{}' for endpoint '{}' (expected 'allow' or 'reject')",
+                other,
+                r.endpoint
+            ),
+        };
+
+        map.insert(r.endpoint.clone(), (inbound_action, outbound_action));
+    }
+    Ok(map)
+}
 
 pub(crate) fn get_matching_endpoint<'a>(
     parts: &Parts,
     allowed_endpoints: &'a [RegexEndpoint],
-) -> Option<&'a Endpoint> {
+) -> Option<&'a RegexEndpoint> {
     for endpoint in allowed_endpoints {
         if endpoint.regex.is_match(parts.uri.to_string().as_str()) {
-            if let Some(expected_method) = &endpoint.endpoint.method {
+            if let Some(expected_method) = &endpoint.rule.method {
                 if expected_method == parts.method {
-                    return Some(&endpoint.endpoint);
+                    return Some(endpoint);
                 }
             } else {
-                return Some(&endpoint.endpoint);
+                return Some(endpoint);
             }
         }
     }
     None
+}
+
+/// Resolve an endpoint for a server and apply its action overrides.
+pub(crate) fn resolve_endpoint<'a>(
+    parts: &Parts,
+    external_server_name: &str,
+    server_rulesets: &'a BTreeMap<String, CompiledRuleset>,
+    default_ruleset: &'a [RegexEndpoint],
+) -> Option<ResolvedEndpoint<'a>> {
+    // Use override rules if the server has a configured ruleset, otherwise fall through to the
+    // default ruleset
+    let ruleset = server_rulesets.get(external_server_name);
+    let additional_endpoints = ruleset
+        .map(|ruleset| ruleset.additional_endpoints.as_slice())
+        .unwrap_or_default();
+
+    debug!(
+        "Ruleset lookup for external server '{external_server_name}': found ruleset: {}, additional endpoints: {}",
+        ruleset.is_some(),
+        additional_endpoints.len()
+    );
+
+    // Two-tier lookup, additional endpoints take precedence, then fall back to the default
+    // ruleset
+    let (endpoint, is_from_additional) =
+        if let Some(endpoint) = get_matching_endpoint(parts, additional_endpoints) {
+            (endpoint, true)
+        } else {
+            (get_matching_endpoint(parts, default_ruleset)?, false)
+        };
+
+    // Determine effective actions: check the override rules by endpoint ID, otherwise use the
+    // endpoint's defaults
+    let action_override = ruleset
+        .and_then(|ruleset| ruleset.action_overrides.get(&endpoint.id))
+        .copied();
+    let (inbound_action, outbound_action) =
+        action_override.unwrap_or((endpoint.rule.inbound_action, endpoint.rule.outbound_action));
+    // Is this an override? This is useful to know for logging, but also if we are in reject all mode,
+    // as all non overriden endpoints will be rejected
+    // An additional endpoint is automatically considered as a override...
+    let is_override = is_from_additional || action_override.is_some();
+
+    debug!(
+        "Matched endpoint: {}, is_from_additional: {is_from_additional}, has_override: {}, inbound_action: {inbound_action:?}, outbound_action: {outbound_action:?}",
+        endpoint.id,
+        action_override.is_some()
+    );
+
+    Some(ResolvedEndpoint {
+        endpoint,
+        inbound_action,
+        outbound_action,
+        is_override,
+    })
 }
 
 pub(crate) async fn to_bytes(body: Body, limit: usize) -> Option<Bytes> {
