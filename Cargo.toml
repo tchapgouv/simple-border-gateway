@@ -30,7 +30,7 @@ tower-http = { version = "0.7", features = ["trace"] }
 
 http = "1"
 
-ruma = { version = "0.16", default-features = false, features = [
+ruma = { version = "0.17", default-features = false, features = [
     "federation-api",
 ] }
 
@@ -50,7 +50,7 @@ serde_json = "1"
 futures = "0.3"
 http-body-util = "0.1"
 
-dns-lookup = "3"
+dns-lookup = "4"
 
 regex = "1"
 
