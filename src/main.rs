@@ -180,7 +180,7 @@ async fn start_services(
     }
 
     if let Some(outbound_config) = config.outbound_proxy {
-        if cli.outbound_only {
+        if cli.inbound_only {
             info!(
                 "Outbound proxy is configured but --inbound-only is set, outbound proxy will not be started"
             );
