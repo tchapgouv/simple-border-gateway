@@ -223,7 +223,7 @@ fn sign_request(
     method: &str,
     uri: &str,
     origin_name: &str,
-    destination_name: &str,
+    destination_name: Option<&str>,
 ) -> String {
     let mut request_map = BTreeMap::from([
         (
@@ -238,11 +238,13 @@ fn sign_request(
             "origin".to_string(),
             CanonicalJsonValue::String(origin_name.to_string()),
         ),
-        (
+    ]);
+    if let Some(destination_name) = destination_name {
+        request_map.insert(
             "destination".to_string(),
             CanonicalJsonValue::String(destination_name.to_string()),
-        ),
-    ]);
+        );
+    }
 
     sign_json(origin_name, keypair, &mut request_map).unwrap();
 
@@ -261,7 +263,6 @@ fn sign_request(
 
     signature.to_string()
 }
-
 #[tokio::test]
 // We have the reject all mode on, however, we also have an override that allows /_matrix/federation/v1/query/profile to go through.
 // The result here should be a 200, as the gateway should let it through.
@@ -285,7 +286,7 @@ async fn test_authenticated_endpoint_with_override_ruleset() {
         method,
         path,
         origin_name,
-        destination_name,
+        Some(destination_name),
     );
 
     let auth_header = format!(
@@ -327,7 +328,7 @@ async fn test_authenticated_endpoint_with_rejected_default_ruleset() {
         method,
         path,
         origin_name,
-        destination_name,
+        Some(destination_name),
     );
 
     let auth_header = format!(
@@ -372,7 +373,7 @@ async fn test_authenticated_endpoint_with_valid_request() {
         method,
         path,
         origin_name,
-        destination_name,
+        Some(destination_name),
     );
 
     let auth_header = format!(
@@ -395,6 +396,79 @@ async fn test_authenticated_endpoint_with_valid_request() {
 
     assert_eq!(status, StatusCode::OK);
     mock.assert();
+}
+
+#[tokio::test]
+// A request signed for another homeserver must not be accepted, even if the signature itself is
+// valid and the origin is allowed.
+async fn test_authenticated_endpoint_with_mismatched_destination() {
+    let (_, port, keypair) = setup_mock_gateway(false, false).await;
+    let key_id = format!("ed25519:{}", keypair.version());
+
+    let method = "GET";
+    let path = "/_matrix/federation/v1/query/profile";
+    let origin_name = "origin.org";
+    // The request is signed for (and claims to be addressed to) another server...
+    let destination_name = "other.org";
+
+    let signature = sign_request(
+        &key_id,
+        &keypair,
+        method,
+        path,
+        origin_name,
+        Some(destination_name),
+    );
+
+    let auth_header = format!(
+        "X-Matrix origin=\"{}\",destination=\"{}\",key=\"{}\",sig=\"{}\"",
+        origin_name, destination_name, key_id, signature
+    );
+
+    let response = reqwest::Client::new()
+        .request(
+            method.parse().unwrap(),
+            format!("http://localhost:{}{}", port, path),
+        )
+        // ...but it is actually sent to the gateway addressed to another server.
+        .header("X-Forwarded-Host", "target.org")
+        .header("Authorization", auth_header.clone())
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+// Requests without a XMatrix destination field should be rejected.
+async fn test_authenticated_endpoint_without_destination() {
+    let (_, port, keypair) = setup_mock_gateway(false, false).await;
+    let key_id = format!("ed25519:{}", keypair.version());
+
+    let method = "GET";
+    let path = "/_matrix/federation/v1/query/profile";
+    let origin_name = "origin.org";
+
+    let signature = sign_request(&key_id, &keypair, method, path, origin_name, None);
+
+    let auth_header = format!(
+        "X-Matrix origin=\"{}\",key=\"{}\",sig=\"{}\"",
+        origin_name, key_id, signature
+    );
+
+    let response = reqwest::Client::new()
+        .request(
+            method.parse().unwrap(),
+            format!("http://localhost:{}{}", port, path),
+        )
+        .header("X-Forwarded-Host", "target.org")
+        .header("Authorization", auth_header.clone())
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 }
 
 // This test, although it's nearly identical to the unauthorized endpoint ones
@@ -420,7 +494,7 @@ async fn test_authenticated_endpoint_with_default_ruleset() {
         method,
         path,
         origin_name,
-        destination_name,
+        Some(destination_name),
     );
 
     let auth_header = format!(
@@ -461,7 +535,7 @@ async fn test_authenticated_endpoint_with_unauthorized_endpoint() {
         method,
         path,
         origin_name,
-        destination_name,
+        Some(destination_name),
     );
 
     let auth_header = format!(
@@ -501,7 +575,7 @@ async fn test_authenticated_endpoint_from_unauthorized_server() {
         method,
         path,
         origin_name,
-        destination_name,
+        Some(destination_name),
     );
 
     let auth_header = format!(
@@ -542,7 +616,7 @@ async fn test_authenticated_endpoint_with_invalid_signature() {
         path,
         // This will make the signature invalid
         "wrong.org",
-        destination_name,
+        Some(destination_name),
     );
 
     let auth_header = format!(
@@ -621,7 +695,7 @@ async fn test_authenticated_endpoint_with_non_utf8_body() {
         method,
         path,
         origin_name,
-        destination_name,
+        Some(destination_name),
     );
 
     let auth_header = format!(

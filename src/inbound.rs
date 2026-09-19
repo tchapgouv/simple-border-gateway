@@ -128,7 +128,13 @@ impl InboundHandler {
             return create_status_response(StatusCode::BAD_REQUEST).into();
         };
 
-        match verify_signature(&self.public_key_map, &ctx.parts, x_matrix, &body) {
+        match verify_signature(
+            &self.public_key_map,
+            &ctx.parts,
+            x_matrix,
+            &body,
+            &ctx.destination_server_name,
+        ) {
             Ok(()) => {
                 ctx.log(
                     Level::Info,

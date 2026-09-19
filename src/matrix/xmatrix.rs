@@ -26,7 +26,21 @@ pub(crate) fn verify_signature(
     parts: &Parts,
     x_matrix: &XMatrix,
     body: &str,
+    expected_destination: &str,
 ) -> Result<(), Whatever> {
+    // The request must be addressed to the server it is being verified for.
+    let Some(destination) = &x_matrix.destination else {
+        snafu::whatever!(
+            "X-Matrix Authorization header is missing the required 'destination' field"
+        );
+    };
+
+    if destination.as_str() != expected_destination {
+        snafu::whatever!(
+            "X-Matrix destination '{destination}' does not match the addressed server '{expected_destination}'"
+        );
+    }
+
     let content_json: Option<Value> = serde_json::from_str(body).ok();
 
     let signatures = BTreeMap::from([(
