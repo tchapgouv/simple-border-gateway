@@ -233,6 +233,22 @@ async fn start_services(
     Ok(tasks)
 }
 
+/// Aborts the given tasks and awaits their termination.
+///
+/// `JoinHandle::abort` only requests cancellation; the task may still be running
+/// (and holding resources such as its listening socket) when it returns. Awaiting
+/// the handles guarantees the tasks have actually stopped and released their
+/// resources before new services are started, avoiding `EADDRINUSE` on reload.
+async fn stop_services(tasks: Vec<JoinHandle<()>>) {
+    for task in &tasks {
+        task.abort();
+    }
+    for task in tasks {
+        // An aborted task resolves with a cancellation error, which is expected.
+        let _ = task.await;
+    }
+}
+
 #[snafu::report]
 #[tokio::main]
 async fn main() -> Result<(), Whatever> {
@@ -295,9 +311,7 @@ async fn main() -> Result<(), Whatever> {
             // Handle Ctrl+C
             _ = tokio::signal::ctrl_c() => {
                 info!("Received Ctrl+C, shutting down...");
-                for task in tasks.iter() {
-                    task.abort();
-                }
+                stop_services(tasks).await;
                 break;
             }
             // Handle SIGHUP
@@ -315,11 +329,10 @@ async fn main() -> Result<(), Whatever> {
                     info!("Configuration unchanged, skipping reload");
                     continue;
                 }
-                // Aborting existing tasks
+                // Aborting existing tasks and waiting for them to release their
+                // listening sockets before binding the new ones.
                 info!("New configuration is valid and loaded. Aborting existing tasks...");
-                for task in tasks.iter() {
-                    task.abort();
-                }
+                stop_services(std::mem::take(&mut tasks)).await;
                 // Starting new tasks with the new config
                 info!("Starting the services with the new config...");
                 tasks = match start_services(config.clone(), &cli).await {
