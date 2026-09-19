@@ -1,0 +1,7 @@
+/target
+
+# Not required to compile the binary. Ignoring them also means edits to the
+# docs or the CI config no longer invalidate the Docker build cache.
+/.github
+/docs
+README.md

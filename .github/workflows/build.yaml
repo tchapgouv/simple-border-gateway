@@ -105,6 +105,8 @@ jobs:
           targets: |
             release
           set: |
+            base.cache-from=type=gha
+            base.cache-to=type=gha,mode=max
             base.output=type=image,push=true
 
       - name: Transform bake output

@@ -20,9 +20,24 @@ WORKDIR /app
 # Network access: to fetch dependencies
 RUN --network=default \
     --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/app/target \
   cargo install --locked \
   cargo-auditable@=${CARGO_AUDITABLE_VERSION}
+
+# Build the dependencies in a dedicated layer, so that changing the application
+# sources below only rebuilds the workspace crates instead of the whole
+# dependency tree. The workspace crates are stubbed out for this step.
+# Network access: to fetch dependencies
+COPY Cargo.toml Cargo.lock ./
+RUN --network=default \
+    --mount=type=cache,target=/usr/local/cargo/registry \
+  mkdir -p src \
+  && echo 'fn main() {}' > src/main.rs \
+  && touch src/lib.rs \
+  && cargo auditable build \
+    --locked \
+    --release \
+    --target x86_64-unknown-linux-gnu \
+  && rm -rf src
 
 ARG VERGEN_GIT_DESCRIBE
 ENV VERGEN_GIT_DESCRIBE=${VERGEN_GIT_DESCRIBE}
@@ -33,7 +48,6 @@ COPY . .
 # Network access: to fetch dependencies
 RUN --network=default \
     --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/app/target \
   cargo auditable build \
     --locked \
     --release \
