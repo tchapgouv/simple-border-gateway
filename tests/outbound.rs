@@ -144,7 +144,8 @@ async fn setup_mock_gateway(
         ca_cert.pem(),
         crypto_provider::default_provider(),
         handler,
-    );
+    )
+    .unwrap();
 
     if let Some(upstream_proxy) = upstream_proxy {
         gateway_builder = gateway_builder

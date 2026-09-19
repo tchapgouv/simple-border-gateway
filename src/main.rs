@@ -46,10 +46,21 @@ struct Cli {
     reject_all_by_default: bool,
 }
 
-async fn start_services(
+/// A service whose configuration has been fully validated and compiled, ready to be spawned.
+///
+/// All fallible configuration work (regex compilation, address parsing, certificate
+/// loading, ...) happens while building these, which lets a config reload reject a bad
+/// configuration before the currently running services are stopped.
+enum PreparedService {
+    Inbound(InboundGatewayBuilder<InboundHandler>),
+    Outbound(Box<OutboundGatewayBuilder<OutboundHandler>>),
+}
+
+/// Validates the configuration and builds the corresponding services without starting them.
+fn prepare_services(
     config: BorderGatewayConfig,
     cli: &Cli,
-) -> Result<Vec<JoinHandle<()>>, Whatever> {
+) -> Result<Vec<PreparedService>, Whatever> {
     debug!("Configuration loaded");
     let mut domain_server_name_map = BTreeMap::new();
     let mut target_base_urls: BTreeMap<String, String> = BTreeMap::new();
@@ -140,7 +151,7 @@ async fn start_services(
         public_key_map.insert(hs.server_name, verify_keys);
     }
 
-    let mut tasks = vec![];
+    let mut services = vec![];
     let name_resolver = NameResolver::new(domain_server_name_map);
 
     if let Some(inbound_config) = config.inbound_proxy {
@@ -163,18 +174,10 @@ async fn start_services(
                 .parse()
                 .whatever_context("Failed to parse inbound listen address")?;
 
-            tasks.push(tokio::spawn(async move {
-                if let Err(err) =
-                    InboundGatewayBuilder::new(listen_address, target_base_urls, handler)
-                        .with_http_client(http_client)
-                        .build_and_run()
-                        .await
-                {
-                    error!("Failed to create inbound proxy");
-                    error!("{}", Report::from_error(err));
-                    exit(1);
-                }
-            }));
+            services.push(PreparedService::Inbound(
+                InboundGatewayBuilder::new(listen_address, target_base_urls, handler)
+                    .with_http_client(http_client),
+            ));
             info!("Inbound proxy initialized");
         }
     }
@@ -210,27 +213,43 @@ async fn start_services(
                 .parse()
                 .whatever_context("Failed to parse outbound listen address")?;
 
-            tasks.push(tokio::spawn(async move {
-                if let Err(err) = OutboundGatewayBuilder::new(
-                    listen_address,
-                    ca_private_key,
-                    ca_cert,
-                    crypto_provider::default_provider(),
-                    handler,
-                )
-                .with_http_client(http_client)
-                .build_and_run()
-                .await
-                {
+            let builder = OutboundGatewayBuilder::new(
+                listen_address,
+                ca_private_key,
+                ca_cert,
+                crypto_provider::default_provider(),
+                handler,
+            )
+            .whatever_context("Failed to create outbound gateway")?
+            .with_http_client(http_client);
+            services.push(PreparedService::Outbound(Box::new(builder)));
+            info!("Outbound proxy initialized");
+        }
+    }
+    Ok(services)
+}
+
+/// Spawns the given prepared services, returning their task handles.
+fn spawn_services(services: Vec<PreparedService>) -> Vec<JoinHandle<()>> {
+    services
+        .into_iter()
+        .map(|service| match service {
+            PreparedService::Inbound(builder) => tokio::spawn(async move {
+                if let Err(err) = builder.build_and_run().await {
+                    error!("Failed to create inbound proxy");
+                    error!("{}", Report::from_error(err));
+                    exit(1);
+                }
+            }),
+            PreparedService::Outbound(builder) => tokio::spawn(async move {
+                if let Err(err) = builder.build_and_run().await {
                     error!("Failed to create outbound proxy");
                     error!("{}", Report::from_error(err));
                     exit(1);
                 }
-            }));
-            info!("Outbound proxy initialized");
-        }
-    }
-    Ok(tasks)
+            }),
+        })
+        .collect()
 }
 
 /// Aborts the given tasks and awaits their termination.
@@ -299,8 +318,9 @@ async fn main() -> Result<(), Whatever> {
     );
     let mut old_config = BorderGatewayConfig::load(&cli.config_file)?;
 
+    let initial_services = prepare_services(old_config.clone(), &cli)?;
     // Inbound/Outbound tasks. Kept so they can be aborted on config reload.
-    let mut tasks: Vec<JoinHandle<()>> = start_services(old_config.clone(), &cli).await?;
+    let mut tasks: Vec<JoinHandle<()>> = spawn_services(initial_services);
 
     let mut hup =
         signal(SignalKind::hangup()).whatever_context("Failed to start SIGHUP handler")?;
@@ -329,20 +349,23 @@ async fn main() -> Result<(), Whatever> {
                     info!("Configuration unchanged, skipping reload");
                     continue;
                 }
+                // Validate and build the new services *before* stopping the running ones,
+                // so that an invalid config cannot take down a healthy gateway.
+                let new_services = match prepare_services(config.clone(), &cli) {
+                    Ok(services) => services,
+                    Err(e) => {
+                        error!("Failed to start services with new config: {}", e);
+                        warn!("The services will not be reloaded due to config errors");
+                        continue;
+                    }
+                };
                 // Aborting existing tasks and waiting for them to release their
                 // listening sockets before binding the new ones.
                 info!("New configuration is valid and loaded. Aborting existing tasks...");
                 stop_services(std::mem::take(&mut tasks)).await;
                 // Starting new tasks with the new config
                 info!("Starting the services with the new config...");
-                tasks = match start_services(config.clone(), &cli).await {
-                    Ok(t) => t,
-                    Err(e) => {
-                        error!("Failed to start services with new config: {}", e);
-                        error!("Exiting due to failure to start services with new config");
-                        exit(1);
-                    }
-                };
+                tasks = spawn_services(new_services);
                 old_config = config;
             }
         }

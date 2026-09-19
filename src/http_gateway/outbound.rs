@@ -26,8 +26,7 @@ pub enum OutboundGatewayCreateError {
 
 pub struct OutboundGatewayBuilder<H: GatewayHandler> {
     listen_address: SocketAddr,
-    ca_private_key: String,
-    ca_certificate: String,
+    ca_issuer: Issuer<'static, KeyPair>,
     crypto_provider: CryptoProvider,
     http_client: reqwest::Client,
 
@@ -41,15 +40,17 @@ impl<H: GatewayHandler> OutboundGatewayBuilder<H> {
         ca_certificate: String,
         crypto_provider: CryptoProvider,
         handler: H,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, OutboundGatewayCreateError> {
+        let key_pair = KeyPair::from_pem(ca_private_key.as_str()).context(ParsePrivateKeySnafu)?;
+        let ca_issuer = Issuer::from_ca_cert_pem(ca_certificate.as_str(), key_pair)
+            .context(ParseCertificateSnafu)?;
+        Ok(Self {
             listen_address,
-            ca_private_key,
-            ca_certificate,
+            ca_issuer,
             crypto_provider,
             handler,
             http_client: reqwest::Client::new(),
-        }
+        })
     }
 
     pub fn with_http_client(mut self, http_client: reqwest::Client) -> Self {
@@ -58,19 +59,12 @@ impl<H: GatewayHandler> OutboundGatewayBuilder<H> {
     }
 
     pub async fn build_and_run(self) -> Result<(), OutboundGatewayCreateError> {
-        let key_pair =
-            KeyPair::from_pem(self.ca_private_key.as_str()).context(ParsePrivateKeySnafu)?;
-        let issuer = Issuer::from_ca_cert_pem(self.ca_certificate.as_str(), key_pair)
-            .context(ParseCertificateSnafu)?;
-
-        let crypto_provider = self.crypto_provider;
-
-        let ca = RcgenAuthority::new(issuer, 1_000, crypto_provider.clone());
+        let ca = RcgenAuthority::new(self.ca_issuer, 1_000, self.crypto_provider.clone());
 
         let builder = Proxy::builder()
             .with_addr(self.listen_address)
             .with_ca(ca)
-            .with_rustls_connector(crypto_provider);
+            .with_rustls_connector(self.crypto_provider);
 
         let proxy = builder
             .with_http_handler(HandlerAdapter::new(self.handler, self.http_client))
