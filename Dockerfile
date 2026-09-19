@@ -45,10 +45,15 @@ ENV VERGEN_GIT_DESCRIBE=${VERGEN_GIT_DESCRIBE}
 # Copy the code
 COPY . .
 
+# BuildKit copies the files with their original timestamps, which are older than
+# the artifacts produced by the stub build above. Cargo then considers the
+# workspace crate up to date and silently keeps the stub binary instead of
+# compiling the real sources, so clean the workspace crate first to force a rebuild.
 # Network access: to fetch dependencies
 RUN --network=default \
     --mount=type=cache,target=/usr/local/cargo/registry \
-  cargo auditable build \
+  cargo clean -p simple-border-gateway \
+  && cargo auditable build \
     --locked \
     --release \
     --target x86_64-unknown-linux-gnu \
