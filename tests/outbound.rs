@@ -212,7 +212,7 @@ async fn test_valid_federation_request_from_rejected_whitelist() {
 async fn test_custom_endpoint() {
     let (mock_server, client) = setup_mock_gateway(None, false).await;
 
-    let mut mock = mock_server.mock(|when, then| {
+    let mock = mock_server.mock(|when, then| {
         when.method("GET").path("/.well-known/matrix/element_call");
         then.status(200);
     });
@@ -226,15 +226,13 @@ async fn test_custom_endpoint() {
 
     assert_eq!(response.status(), StatusCode::OK);
     mock.assert();
-
-    mock.delete();
 }
 
 #[tokio::test]
 async fn test_valid_federation_request_from_rejected_whitelist_override() {
     let (mock_server, client) = setup_mock_gateway(None, true).await;
 
-    let mut mock = mock_server.mock(|when, then| {
+    let mock = mock_server.mock(|when, then| {
         when.method("GET")
             .path("/_matrix/federation/v1/query/profile");
         then.status(200);
@@ -249,15 +247,13 @@ async fn test_valid_federation_request_from_rejected_whitelist_override() {
 
     assert_eq!(response.status(), StatusCode::OK);
     mock.assert();
-
-    mock.delete();
 }
 
 #[tokio::test]
 async fn test_valid_federation_request_from_default_whitelist() {
     let (mock_server, client) = setup_mock_gateway(None, false).await;
 
-    let mut mock = mock_server.mock(|when, then| {
+    let mock = mock_server.mock(|when, then| {
         when.method("GET")
             .path("/_matrix/federation/v1/query/directory");
         then.status(200);
@@ -273,8 +269,6 @@ async fn test_valid_federation_request_from_default_whitelist() {
 
     assert_eq!(response.status(), StatusCode::OK);
     mock.assert();
-
-    mock.delete();
 }
 
 #[tokio::test]
@@ -294,7 +288,7 @@ async fn test_valid_federation_request_but_rejected_endpoint() {
 async fn test_valid_federation_request() {
     let (mock_server, client) = setup_mock_gateway(None, false).await;
 
-    let mut mock = mock_server.mock(|when, then| {
+    let mock = mock_server.mock(|when, then| {
         when.method("GET")
             .path("/_matrix/federation/v1/query/profile");
         then.status(200);
@@ -308,8 +302,6 @@ async fn test_valid_federation_request() {
 
     assert_eq!(response.status(), StatusCode::OK);
     mock.assert();
-
-    mock.delete();
 }
 
 #[tokio::test]
@@ -329,7 +321,7 @@ async fn test_unauthorized_federation_request() {
 async fn test_valid_legacy_media_request() {
     let (mock_server, client) = setup_mock_gateway(None, false).await;
 
-    let mut mock = mock_server.mock(|when, then| {
+    let mock = mock_server.mock(|when, then| {
         when.method("GET")
             .path("/_matrix/media/v3/download/test.org/mediaId");
         then.status(200);
@@ -343,8 +335,6 @@ async fn test_valid_legacy_media_request() {
 
     assert_eq!(response.status(), StatusCode::OK);
     mock.assert();
-
-    mock.delete();
 }
 
 #[tokio::test]
@@ -364,7 +354,7 @@ async fn test_unauthorized_legacy_media_request() {
 async fn test_valid_well_known_request() {
     let (mock_server, client) = setup_mock_gateway(None, false).await;
 
-    let mut mock = mock_server.mock(|when, then| {
+    let mock = mock_server.mock(|when, then| {
         when.method("GET").path("/.well-known/matrix/server");
         then.status(200);
     });
@@ -377,8 +367,6 @@ async fn test_valid_well_known_request() {
 
     assert_eq!(response.status(), StatusCode::OK);
     mock.assert();
-
-    mock.delete();
 }
 
 #[tokio::test]
@@ -398,7 +386,7 @@ async fn test_unauthorized_well_known_request() {
 async fn test_allowed_non_matrix_regex() {
     let (mock_server, client) = setup_mock_gateway(None, false).await;
 
-    let mut mock = mock_server.mock(|when, then| {
+    let mock = mock_server.mock(|when, then| {
         when.method("GET").path("/_matrix/push/v1/notify");
         then.status(200);
     });
@@ -411,8 +399,6 @@ async fn test_allowed_non_matrix_regex() {
 
     assert_eq!(response.status(), StatusCode::OK);
     mock.assert();
-
-    mock.delete();
 }
 
 #[tokio::test]
@@ -427,7 +413,7 @@ async fn test_upstream_proxy() {
 
     let (_, client) = setup_mock_gateway(Some(upstream_proxy), false).await;
 
-    let mut mock = proxy_mock_server.mock(|when, then| {
+    let mock = proxy_mock_server.mock(|when, then| {
         when.method("GET")
             .path("/_matrix/federation/v1/query/profile")
             // The credentials configured for the upstream proxy are sent as HTTP basic auth.
@@ -445,5 +431,4 @@ async fn test_upstream_proxy() {
     // The response made it back through the upstream proxy.
     assert_eq!(response.status(), StatusCode::OK);
     mock.assert();
-    mock.delete();
 }

@@ -141,7 +141,7 @@ async fn test_invalid_endpoint() {
 async fn test_custom_endpoint() {
     let (mock_server, port, _) = setup_mock_gateway(false, false).await;
 
-    let mut mock = mock_server.mock(|when, then| {
+    let mock = mock_server.mock(|when, then| {
         when.method("GET").path("/.well-known/matrix/element_call");
         then.status(200);
     });
@@ -158,15 +158,13 @@ async fn test_custom_endpoint() {
 
     assert_eq!(response.status(), StatusCode::OK);
     mock.assert();
-
-    mock.delete();
 }
 
 #[tokio::test]
 async fn test_unauthenticated_endpoint() {
     let (mock_server, port, _) = setup_mock_gateway(true, false).await;
 
-    let mut mock = mock_server.mock(|when, then| {
+    let mock = mock_server.mock(|when, then| {
         when.method("GET").path("/.well-known/matrix/server");
         then.status(200);
     });
@@ -183,8 +181,6 @@ async fn test_unauthenticated_endpoint() {
 
     assert_eq!(response.status(), StatusCode::OK);
     mock.assert();
-
-    mock.delete();
 }
 
 #[tokio::test]
@@ -278,7 +274,7 @@ async fn test_authenticated_endpoint_with_override_ruleset() {
     let origin_name = "origin.org";
     let destination_name = "target.org";
 
-    let mut mock = mock_server.mock(|when, then| {
+    let mock = mock_server.mock(|when, then| {
         when.method(method).path(path);
         then.status(200);
     });
@@ -312,8 +308,6 @@ async fn test_authenticated_endpoint_with_override_ruleset() {
 
     assert_eq!(status, StatusCode::OK);
     mock.assert();
-
-    mock.delete();
 }
 
 #[tokio::test]
@@ -367,7 +361,7 @@ async fn test_authenticated_endpoint_with_valid_request() {
     let origin_name = "origin.org";
     let destination_name = "target.org";
 
-    let mut mock = mock_server.mock(|when, then| {
+    let mock = mock_server.mock(|when, then| {
         when.method(method).path(path);
         then.status(200);
     });
@@ -401,8 +395,6 @@ async fn test_authenticated_endpoint_with_valid_request() {
 
     assert_eq!(status, StatusCode::OK);
     mock.assert();
-
-    mock.delete();
 }
 
 // This test, although it's nearly identical to the unauthorized endpoint ones
@@ -417,7 +409,7 @@ async fn test_authenticated_endpoint_with_default_ruleset() {
     let origin_name = "origin.org";
     let destination_name = "target.org";
 
-    let mut mock = mock_server.mock(|when, then| {
+    let mock = mock_server.mock(|when, then| {
         when.method(method).path(path);
         then.status(200);
     });
@@ -451,8 +443,6 @@ async fn test_authenticated_endpoint_with_default_ruleset() {
 
     assert_eq!(status, StatusCode::OK);
     mock.assert();
-
-    mock.delete();
 }
 
 #[tokio::test]
