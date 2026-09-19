@@ -21,7 +21,9 @@ allowed_non_matrix_regexes_dangerous = [
 ]
 
 [outbound_proxy.upstream_proxy]
-url = "https://127.0.0.1:3128"
+url = "http://127.0.0.1:3128"
+username = "proxyuser"
+password = "proxypwd"
 
 [[internal_homeservers]]
 server_name = "tout.im"

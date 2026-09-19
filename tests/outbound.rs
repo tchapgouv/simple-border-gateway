@@ -2,6 +2,7 @@ use http::{Method, Request, Response, StatusCode};
 use rand::RngExt;
 use rcgen::{BasicConstraints, CertificateParams, IsCa, KeyPair};
 use reqwest::{Body, Proxy};
+use simple_border_gateway::config::UpstreamProxy;
 use simple_border_gateway::http_gateway::outbound::OutboundGatewayBuilder;
 use simple_border_gateway::http_gateway::{
     GatewayDirection, GatewayForwardError, GatewayHandler, RequestOrResponse,
@@ -70,7 +71,7 @@ impl GatewayHandler for HandlerWithMockServer {
 }
 
 async fn setup_mock_gateway(
-    upstream_proxy_url: Option<String>,
+    upstream_proxy: Option<UpstreamProxy>,
     reject_all_by_default: bool,
 ) -> (httpmock::MockServer, reqwest::Client) {
     // env_logger::builder()
@@ -145,9 +146,9 @@ async fn setup_mock_gateway(
         handler,
     );
 
-    if let Some(upstream_proxy_url) = upstream_proxy_url {
+    if let Some(upstream_proxy) = upstream_proxy {
         gateway_builder = gateway_builder
-            .with_http_client(create_http_client(vec![], Some(upstream_proxy_url)).unwrap());
+            .with_http_client(create_http_client(vec![], Some(upstream_proxy)).unwrap());
     }
 
     tokio::spawn(async move {
@@ -411,5 +412,38 @@ async fn test_allowed_non_matrix_regex() {
     assert_eq!(response.status(), StatusCode::OK);
     mock.assert();
 
+    mock.delete();
+}
+
+#[tokio::test]
+async fn test_upstream_proxy() {
+    let proxy_mock_server = httpmock::MockServer::start();
+
+    let upstream_proxy = UpstreamProxy {
+        url: format!("http://{}", proxy_mock_server.address()),
+        username: Some("proxyuser".to_string()),
+        password: Some("proxypwd".to_string()),
+    };
+
+    let (_, client) = setup_mock_gateway(Some(upstream_proxy), false).await;
+
+    let mut mock = proxy_mock_server.mock(|when, then| {
+        when.method("GET")
+            .path("/_matrix/federation/v1/query/profile")
+            // The credentials configured for the upstream proxy are sent as HTTP basic auth.
+            // `cHJveHl1c2VyOnByb3h5cHdk` is the base64 encoding of `proxyuser:proxypwd`.
+            .header("proxy-authorization", "Basic cHJveHl1c2VyOnByb3h5cHdk");
+        then.status(200);
+    });
+
+    let response = client
+        .get("https://federation.target.org/_matrix/federation/v1/query/profile")
+        .send()
+        .await
+        .unwrap();
+
+    // The response made it back through the upstream proxy.
+    assert_eq!(response.status(), StatusCode::OK);
+    mock.assert();
     mock.delete();
 }

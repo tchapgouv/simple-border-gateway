@@ -187,7 +187,7 @@ async fn start_services(
         } else {
             let http_client = create_http_client(
                 outbound_config.additional_root_certs,
-                outbound_config.upstream_proxy_url,
+                outbound_config.upstream_proxy,
             )
             .whatever_context("Failed to create outbound http client")?;
             let handler = OutboundHandler::new(

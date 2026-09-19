@@ -54,12 +54,6 @@ pub struct ExternalHomeserverConfig {
     pub ruleset: Option<String>,
 }
 
-#[derive(Clone, Deserialize, PartialEq, Serialize)]
-pub struct UpstreamProxyAuth {
-    pub username: String,
-    pub password: String,
-}
-
 /// An endpoint definition with a unique ID, path pattern, and optional method/auth/type constraints.
 #[derive(Clone, Deserialize, PartialEq, Serialize)]
 pub struct EndpointConfig {
@@ -127,12 +121,20 @@ pub struct OutboundProxyConfig {
     pub listen_address: String,
     #[serde(default)]
     pub additional_root_certs: Vec<String>,
-    pub upstream_proxy_url: Option<String>,
+    #[serde(default)]
+    pub upstream_proxy: Option<UpstreamProxy>,
 
     pub ca_priv_key: String,
     pub ca_cert: String,
     #[serde(default)]
     pub allowed_non_matrix_regexes_dangerous: Vec<String>,
+}
+
+#[derive(Clone, Deserialize, PartialEq, Serialize)]
+pub struct UpstreamProxy {
+    pub url: String,
+    pub username: Option<String>,
+    pub password: Option<String>,
 }
 
 fn default_outbound_proxy_listen_address() -> String {
