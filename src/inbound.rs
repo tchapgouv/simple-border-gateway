@@ -2,14 +2,14 @@ use std::{collections::BTreeMap, net::SocketAddr};
 
 use crate::{
     http_gateway::{
-        util::create_status_response, GatewayDirection, GatewayHandler, RequestOrResponse,
+        GatewayDirection, GatewayHandler, RequestOrResponse, util::create_status_response,
     },
     matrix::{
         spec::{Action, AuthType, DEFAULT_RULESET},
-        util::{create_matrix_response, NameResolver},
+        util::{NameResolver, create_matrix_response},
         xmatrix::verify_signature,
     },
-    util::{resolve_endpoint, to_bytes, CompiledRuleset, RequestContext},
+    util::{CompiledRuleset, RequestContext, resolve_endpoint, to_bytes},
 };
 use http::{Request, StatusCode};
 use log::Level;

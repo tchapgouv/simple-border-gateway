@@ -56,10 +56,10 @@ pub(crate) fn extract_origin_ip(
             if let Ok(ip) = x_forwarded_for.to_str().unwrap_or_default().parse() {
                 origin_ip = ip;
             }
-        } else if let Some(forwarded) = parts.headers.get("Forwarded") {
-            if let Ok(ip) = forwarded.to_str().unwrap_or_default().parse() {
-                origin_ip = ip;
-            }
+        } else if let Some(forwarded) = parts.headers.get("Forwarded")
+            && let Ok(ip) = forwarded.to_str().unwrap_or_default().parse()
+        {
+            origin_ip = ip;
         }
     }
     origin_ip

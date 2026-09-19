@@ -1,16 +1,16 @@
 use clap::Parser;
-use log::{debug, error, info, warn, LevelFilter};
+use log::{LevelFilter, debug, error, info, warn};
 use simple_border_gateway::http_gateway::inbound::InboundGatewayBuilder;
 use simple_border_gateway::http_gateway::outbound::OutboundGatewayBuilder;
 use simple_border_gateway::inbound::InboundHandler;
 use simple_border_gateway::matrix::util::NameResolver;
 use simple_border_gateway::outbound::OutboundHandler;
 use simple_border_gateway::util::{
-    build_regex_endpoints_from_endpoint_configs, compile_override_rules, create_http_client,
-    crypto_provider, install_crypto_provider, read_pem, CompiledRuleset,
+    CompiledRuleset, build_regex_endpoints_from_endpoint_configs, compile_override_rules,
+    create_http_client, crypto_provider, install_crypto_provider, read_pem,
 };
 use snafu::{Report, ResultExt, Whatever};
-use tokio::signal::unix::{signal, SignalKind};
+use tokio::signal::unix::{SignalKind, signal};
 use tokio::task::JoinHandle;
 
 use std::collections::BTreeMap;
@@ -145,7 +145,9 @@ async fn start_services(
 
     if let Some(inbound_config) = config.inbound_proxy {
         if cli.outbound_only {
-            info!("Inbound proxy is configured but --outbound-only is set, inbound proxy will not be started");
+            info!(
+                "Inbound proxy is configured but --outbound-only is set, inbound proxy will not be started"
+            );
         } else {
             let http_client = create_http_client(inbound_config.additional_root_certs, None)
                 .whatever_context("Failed to create inbound http client")?;
@@ -179,7 +181,9 @@ async fn start_services(
 
     if let Some(outbound_config) = config.outbound_proxy {
         if cli.outbound_only {
-            info!("Outbound proxy is configured but --inbound-only is set, outbound proxy will not be started");
+            info!(
+                "Outbound proxy is configured but --inbound-only is set, outbound proxy will not be started"
+            );
         } else {
             let http_client = create_http_client(
                 outbound_config.additional_root_certs,
@@ -265,7 +269,9 @@ async fn main() -> Result<(), Whatever> {
     debug!("Crypto provider installed");
 
     if cli.reject_all_by_default {
-        info!("Reject all by default mode enabled. The default ruleset will reject all endpoints, and only endpoints explicitly allowed by override rules will be accepted.");
+        info!(
+            "Reject all by default mode enabled. The default ruleset will reject all endpoints, and only endpoints explicitly allowed by override rules will be accepted."
+        );
     }
 
     // Initial loading of the config file

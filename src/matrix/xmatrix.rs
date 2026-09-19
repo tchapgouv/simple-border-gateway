@@ -1,8 +1,8 @@
 use http::request::Parts;
 use ruma::{
-    api::federation::authentication::XMatrix,
-    signatures::{verify_json, PublicKeyMap},
     CanonicalJsonValue,
+    api::federation::authentication::XMatrix,
+    signatures::{PublicKeyMap, verify_json},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

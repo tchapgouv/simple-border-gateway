@@ -1,16 +1,16 @@
 use std::{collections::BTreeMap, net::SocketAddr};
 
 use axum::{
-    extract::{ConnectInfo, State},
     Router,
+    extract::{ConnectInfo, State},
 };
 use snafu::{ResultExt, Snafu};
 use tokio::net::TcpListener;
 use tracing::Level;
 
 use crate::http_gateway::{
-    util::{extract_destination_host, shutdown_signal},
     ConvertRequestSnafu, GatewayDirection, GatewayForwardError, GatewayHandler, RequestOrResponse,
+    util::{extract_destination_host, shutdown_signal},
 };
 
 #[derive(Debug, Snafu)]
@@ -110,7 +110,7 @@ async fn inbound_handler<H: GatewayHandler>(
             return state
                 .handler
                 .handle_error(e, GatewayDirection::Inbound)
-                .await
+                .await;
         }
     };
     let req_or_resp = state
@@ -170,7 +170,7 @@ async fn forward_request<H: GatewayHandler>(
                     },
                     GatewayDirection::Inbound,
                 )
-                .await
+                .await;
         }
     };
 
@@ -185,7 +185,7 @@ async fn forward_request<H: GatewayHandler>(
                     },
                     GatewayDirection::Inbound,
                 )
-                .await
+                .await;
         }
     }
 }

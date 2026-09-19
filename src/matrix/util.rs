@@ -6,7 +6,7 @@ use std::{
 };
 
 use http::StatusCode;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use ttl_cache::TtlCache;
 
 use crate::http_gateway::util::{create_response, remove_default_https_port};

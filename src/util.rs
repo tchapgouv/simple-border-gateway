@@ -2,9 +2,9 @@ use std::collections::BTreeMap;
 use std::net::SocketAddr;
 
 use bytes::Bytes;
-use http::{request::Parts, uri::Scheme, Method};
+use http::{Method, request::Parts, uri::Scheme};
 use http_body_util::{BodyExt, Limited};
-use log::{log, Level};
+use log::{Level, log};
 use regex::Regex;
 use reqwest::Body;
 use ruma::api::federation::authentication::XMatrix;
@@ -14,8 +14,8 @@ use tracing::debug;
 use crate::{
     config::EndpointConfig,
     http_gateway::{
-        util::{extract_destination_host, extract_origin_ip},
         GatewayDirection,
+        util::{extract_destination_host, extract_origin_ip},
     },
     matrix::{
         spec::{Action, AuthType, EndpointType},
@@ -358,12 +358,11 @@ pub(crate) fn remove_default_ports_from_uri(uri: http::Uri) -> String {
     let mut parts = uri.into_parts();
     if let Some(authority) = parts.authority.clone() {
         let host = authority.host().to_string();
-        if let Some(port) = authority.port_u16() {
-            if port == 443 && parts.scheme == Some(Scheme::HTTPS)
-                || port == 80 && parts.scheme == Some(Scheme::HTTP)
-            {
-                parts.authority = Some(http::uri::Authority::from_maybe_shared(host).unwrap());
-            }
+        if let Some(port) = authority.port_u16()
+            && (port == 443 && parts.scheme == Some(Scheme::HTTPS)
+                || port == 80 && parts.scheme == Some(Scheme::HTTP))
+        {
+            parts.authority = Some(http::uri::Authority::from_maybe_shared(host).unwrap());
         }
     }
     http::Uri::from_parts(parts).unwrap().to_string()

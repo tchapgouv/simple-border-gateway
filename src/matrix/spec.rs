@@ -310,7 +310,7 @@ pub(crate) static DEFAULT_RULESET: Lazy<Vec<RegexEndpoint>> = Lazy::new(|| {
 
 #[cfg(test)]
 mod tests {
-    use super::{EndpointType, DEFAULT_RULESET};
+    use super::{DEFAULT_RULESET, EndpointType};
 
     #[test]
     fn only_discovery_endpoints_are_well_known() {

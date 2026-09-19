@@ -2,16 +2,16 @@ use std::net::SocketAddr;
 
 use http::Method;
 use http_body_util::BodyExt as _;
-use hudsucker::{certificate_authority::RcgenAuthority, Proxy};
+use hudsucker::{Proxy, certificate_authority::RcgenAuthority};
 use log::error;
 use rcgen::{Issuer, KeyPair};
 use rustls::crypto::CryptoProvider;
 use snafu::{ResultExt, Snafu};
 
 use crate::http_gateway::{
-    util::{create_status_response, shutdown_signal},
     ConvertRequestSnafu, ConvertResponseSnafu, GatewayDirection, GatewayForwardError,
     GatewayHandler, RequestOrResponse,
+    util::{create_status_response, shutdown_signal},
 };
 
 #[derive(Debug, Snafu)]

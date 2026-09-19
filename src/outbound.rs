@@ -11,13 +11,13 @@ use snafu::{ResultExt, Whatever};
 
 use crate::{
     http_gateway::{
-        util::create_status_response, GatewayDirection, GatewayHandler, RequestOrResponse,
+        GatewayDirection, GatewayHandler, RequestOrResponse, util::create_status_response,
     },
     matrix::{
-        spec::{Action, EndpointType, DEFAULT_RULESET},
-        util::{create_matrix_response, NameResolver},
+        spec::{Action, DEFAULT_RULESET, EndpointType},
+        util::{NameResolver, create_matrix_response},
     },
-    util::{remove_default_ports_from_uri, resolve_endpoint, CompiledRuleset, RequestContext},
+    util::{CompiledRuleset, RequestContext, remove_default_ports_from_uri, resolve_endpoint},
 };
 
 #[derive(Clone)]

@@ -1,14 +1,14 @@
 use http::{Method, StatusCode};
 use rand::RngExt;
 use reqwest::Body;
-use ruma::serde::Base64;
-use ruma::signatures::{sign_json, Ed25519KeyPair};
 use ruma::CanonicalJsonValue;
+use ruma::serde::Base64;
+use ruma::signatures::{Ed25519KeyPair, sign_json};
 use simple_border_gateway::http_gateway::inbound::InboundGatewayBuilder;
 use simple_border_gateway::inbound::InboundHandler;
 use simple_border_gateway::matrix::spec::{Action, AuthType, EndpointType};
 use simple_border_gateway::matrix::util::NameResolver;
-use simple_border_gateway::util::{install_crypto_provider, CompiledRuleset, RegexEndpoint};
+use simple_border_gateway::util::{CompiledRuleset, RegexEndpoint, install_crypto_provider};
 use std::collections::BTreeMap;
 
 fn no_overridden_ruleset() -> CompiledRuleset {
@@ -21,16 +21,18 @@ fn no_overridden_ruleset() -> CompiledRuleset {
 /// Minimal ruleset for the tests: overrides actions on some default endpoints
 fn test_ruleset() -> CompiledRuleset {
     CompiledRuleset {
-        additional_endpoints: vec![RegexEndpoint::new(
-            "well_known_element_call",
-            "/.well-known/matrix/element_call",
-            Some(Method::GET),
-            AuthType::Unauthenticated,
-            EndpointType::WellKnown,
-            Action::Allow,
-            Action::Allow,
-        )
-        .expect("Invalid endpoint definition")],
+        additional_endpoints: vec![
+            RegexEndpoint::new(
+                "well_known_element_call",
+                "/.well-known/matrix/element_call",
+                Some(Method::GET),
+                AuthType::Unauthenticated,
+                EndpointType::WellKnown,
+                Action::Allow,
+                Action::Allow,
+            )
+            .expect("Invalid endpoint definition"),
+        ],
         action_overrides: BTreeMap::from([
             (
                 "well_known_server".to_string(),
