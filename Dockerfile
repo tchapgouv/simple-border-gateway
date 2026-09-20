@@ -44,7 +44,8 @@ COPY . .
 # the artifacts produced by the stub build above. Cargo then considers the
 # workspace crate up to date and silently keeps the stub binary instead of
 # compiling the real sources, so let's touch the source files to force a rebuild.
-RUN --network=none \
+# Network access: to fetch dependencies
+RUN --network=default \
     --mount=type=cache,target=/usr/local/cargo/registry \
   touch src/main.rs src/lib.rs \
   && cargo auditable build \
