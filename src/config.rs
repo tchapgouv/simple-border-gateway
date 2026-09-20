@@ -29,6 +29,7 @@ where
 }
 
 #[derive(Clone, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct InternalHomeserverConfig {
     #[serde(deserialize_with = "deserialize_lowercase")]
     pub server_name: String,
@@ -39,6 +40,7 @@ pub struct InternalHomeserverConfig {
 }
 
 #[derive(Clone, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ExternalHomeserverConfig {
     #[serde(deserialize_with = "deserialize_lowercase")]
     pub server_name: String,
@@ -56,6 +58,7 @@ pub struct ExternalHomeserverConfig {
 
 /// An endpoint definition with a unique ID, path pattern, and optional method/auth/type constraints.
 #[derive(Clone, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct EndpointConfig {
     pub id: String,
     pub path: String,
@@ -72,6 +75,7 @@ pub struct EndpointConfig {
 /// An override rule that references an endpoint by ID and specifies actions.
 /// The endpoint can be a default endpoint or an additional endpoint.
 #[derive(Clone, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct OverrideRuleConfig {
     /// ID of the endpoint to override (from the default ruleset or an additional endpoint).
     pub endpoint: String,
@@ -84,6 +88,7 @@ pub struct OverrideRuleConfig {
 /// A named set of override rules applied to one or more external homeservers.
 /// Override rules take precedence over the default ruleset.
 #[derive(Clone, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct RulesetConfig {
     #[serde(skip_deserializing, default)]
     pub name: String,
@@ -94,6 +99,7 @@ pub struct RulesetConfig {
 }
 
 #[derive(Clone, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct BorderGatewayConfig {
     pub internal_homeservers: Vec<InternalHomeserverConfig>,
     pub external_homeservers: Vec<ExternalHomeserverConfig>,
@@ -104,6 +110,7 @@ pub struct BorderGatewayConfig {
 }
 
 #[derive(Clone, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct InboundProxyConfig {
     #[serde(default = "default_inbound_proxy_listen_address")]
     pub listen_address: String,
@@ -116,13 +123,14 @@ fn default_inbound_proxy_listen_address() -> String {
 }
 
 #[derive(Clone, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct OutboundProxyConfig {
     #[serde(default = "default_outbound_proxy_listen_address")]
     pub listen_address: String,
     #[serde(default)]
     pub additional_root_certs: Vec<String>,
     #[serde(default)]
-    pub upstream_proxy: Option<UpstreamProxy>,
+    pub upstream_proxy: Option<UpstreamProxyConfig>,
 
     pub ca_priv_key: String,
     pub ca_cert: String,
@@ -131,7 +139,8 @@ pub struct OutboundProxyConfig {
 }
 
 #[derive(Clone, Deserialize, PartialEq, Serialize)]
-pub struct UpstreamProxy {
+#[serde(deny_unknown_fields)]
+pub struct UpstreamProxyConfig {
     pub url: String,
     pub username: Option<String>,
     pub password: Option<String>,

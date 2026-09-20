@@ -12,7 +12,7 @@ use snafu::{ResultExt as _, Whatever};
 use tracing::debug;
 
 use crate::{
-    config::{EndpointConfig, UpstreamProxy},
+    config::{EndpointConfig, UpstreamProxyConfig},
     http_gateway::{
         GatewayDirection,
         util::{extract_destination_host, extract_origin_ip},
@@ -379,14 +379,14 @@ pub fn read_pem(path_or_content: &str) -> Result<String, Whatever> {
 
 pub fn create_http_client(
     additional_root_certs: Vec<String>,
-    upstream_proxy: Option<UpstreamProxy>,
+    upstream_proxy_config: Option<UpstreamProxyConfig>,
 ) -> Result<reqwest::Client, Whatever> {
     let mut builder = reqwest::Client::builder();
-    if let Some(upstream_proxy) = upstream_proxy {
-        let mut proxy_builder = reqwest::Proxy::all(upstream_proxy.url)
+    if let Some(upstream_proxy_config) = upstream_proxy_config {
+        let mut proxy_builder = reqwest::Proxy::all(upstream_proxy_config.url)
             .whatever_context("Failed to create reqwest proxy config")?;
-        if let Some(username) = &upstream_proxy.username
-            && let Some(password) = &upstream_proxy.password
+        if let Some(username) = &upstream_proxy_config.username
+            && let Some(password) = &upstream_proxy_config.password
         {
             proxy_builder = proxy_builder.basic_auth(username, password);
         }

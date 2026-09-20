@@ -2,7 +2,7 @@ use http::{Method, Request, Response, StatusCode};
 use rand::RngExt;
 use rcgen::{BasicConstraints, CertificateParams, IsCa, KeyPair};
 use reqwest::{Body, Proxy};
-use simple_border_gateway::config::UpstreamProxy;
+use simple_border_gateway::config::UpstreamProxyConfig;
 use simple_border_gateway::http_gateway::outbound::OutboundGatewayBuilder;
 use simple_border_gateway::http_gateway::{
     GatewayDirection, GatewayForwardError, GatewayHandler, RequestOrResponse,
@@ -71,7 +71,7 @@ impl GatewayHandler for HandlerWithMockServer {
 }
 
 async fn setup_mock_gateway(
-    upstream_proxy: Option<UpstreamProxy>,
+    upstream_proxy_config: Option<UpstreamProxyConfig>,
     reject_all_by_default: bool,
 ) -> (httpmock::MockServer, reqwest::Client) {
     // env_logger::builder()
@@ -147,9 +147,9 @@ async fn setup_mock_gateway(
     )
     .unwrap();
 
-    if let Some(upstream_proxy) = upstream_proxy {
+    if let Some(upstream_proxy_config) = upstream_proxy_config {
         gateway_builder = gateway_builder
-            .with_http_client(create_http_client(vec![], Some(upstream_proxy)).unwrap());
+            .with_http_client(create_http_client(vec![], Some(upstream_proxy_config)).unwrap());
     }
 
     tokio::spawn(async move {
@@ -406,7 +406,7 @@ async fn test_allowed_non_matrix_regex() {
 async fn test_upstream_proxy() {
     let proxy_mock_server = httpmock::MockServer::start();
 
-    let upstream_proxy = UpstreamProxy {
+    let upstream_proxy = UpstreamProxyConfig {
         url: format!("http://{}", proxy_mock_server.address()),
         username: Some("proxyuser".to_string()),
         password: Some("proxypwd".to_string()),
