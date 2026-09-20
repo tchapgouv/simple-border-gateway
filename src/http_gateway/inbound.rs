@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, net::SocketAddr};
+use std::{collections::BTreeMap, net::SocketAddr, sync::Arc};
 
 use axum::{
     Router,
@@ -19,7 +19,8 @@ pub struct InboundGatewayBindError {
     source: std::io::Error,
 }
 
-#[derive(Clone)]
+/// Shared, per-gateway state. It is wrapped in an [`Arc`] before being handed to axum,
+/// so each request clones only an [`Arc`] handle instead of deep-cloning the whole state.
 struct InboundGatewayState<H: GatewayHandler> {
     http_client: reqwest::Client,
     target_base_urls: BTreeMap<String, String>,
@@ -90,7 +91,7 @@ impl<H: GatewayHandler> InboundGatewayBuilder<H> {
         axum::serve(
             listener,
             router
-                .with_state(state)
+                .with_state(Arc::new(state))
                 .into_make_service_with_connect_info::<SocketAddr>(),
         )
         .with_graceful_shutdown(shutdown_signal())
@@ -100,7 +101,7 @@ impl<H: GatewayHandler> InboundGatewayBuilder<H> {
 }
 
 async fn inbound_handler<H: GatewayHandler>(
-    State(mut state): State<InboundGatewayState<H>>,
+    State(state): State<Arc<InboundGatewayState<H>>>,
     ConnectInfo(socket_addr): ConnectInfo<SocketAddr>,
     req: http::Request<axum::body::Body>,
 ) -> http::Response<reqwest::Body> {
@@ -119,7 +120,7 @@ async fn inbound_handler<H: GatewayHandler>(
         .await;
     match req_or_resp {
         RequestOrResponse::Request(req) => {
-            let resp = forward_request(&mut state, req).await;
+            let resp = forward_request(&state, req).await;
             state
                 .handler
                 .handle_response(resp, GatewayDirection::Inbound)
@@ -130,7 +131,7 @@ async fn inbound_handler<H: GatewayHandler>(
 }
 
 async fn forward_request<H: GatewayHandler>(
-    state: &mut InboundGatewayState<H>,
+    state: &InboundGatewayState<H>,
     req: http::Request<reqwest::Body>,
 ) -> http::Response<reqwest::Body> {
     let (parts, body) = req.into_parts();

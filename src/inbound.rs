@@ -28,14 +28,14 @@ pub struct InboundHandler {
 
 impl GatewayHandler for InboundHandler {
     async fn handle_request(
-        &mut self,
+        &self,
         req: Request<Body>,
         direction: GatewayDirection,
         client_addr: SocketAddr,
     ) -> RequestOrResponse {
         let (parts, body) = req.into_parts();
 
-        let ctx = RequestContext::new(parts, direction, client_addr, &mut self.name_resolver);
+        let ctx = RequestContext::new(parts, direction, client_addr, &self.name_resolver);
 
         // Call the main helper to resolve the endpoint with the active/applicable ruleset (with the default one for fallback), if it exist.
         // This will return on purpose the inbound and outbound action, but we are of course only interested in the inbound action here...

@@ -36,7 +36,7 @@ struct HandlerWithMockServer {
 
 impl GatewayHandler for HandlerWithMockServer {
     async fn handle_request(
-        &mut self,
+        &self,
         req: Request<Body>,
         _direction: GatewayDirection,
         _client_addr: SocketAddr,
@@ -54,7 +54,7 @@ impl GatewayHandler for HandlerWithMockServer {
     }
 
     fn handle_response(
-        &mut self,
+        &self,
         resp: Response<Body>,
         _direction: GatewayDirection,
     ) -> impl Future<Output = Response<Body>> + Send {
@@ -62,7 +62,7 @@ impl GatewayHandler for HandlerWithMockServer {
     }
 
     fn handle_error(
-        &mut self,
+        &self,
         err: GatewayForwardError,
         _direction: GatewayDirection,
     ) -> impl Future<Output = Response<Body>> + Send {

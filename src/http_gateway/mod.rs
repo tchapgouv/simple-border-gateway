@@ -57,7 +57,7 @@ pub trait GatewayHandler: Clone + Send + Sync + 'static {
     /// or a response. If a request is returned, it will be sent to the upstream server. If a
     /// response is returned, it will be sent to the client.
     fn handle_request(
-        &mut self,
+        &self,
         req: Request<Body>,
         _direction: GatewayDirection,
         _client_addr: SocketAddr,
@@ -68,7 +68,7 @@ pub trait GatewayHandler: Clone + Send + Sync + 'static {
     /// This handler will be called for each HTTP response. It can modify a response before it is
     /// forwarded to the client.
     fn handle_response(
-        &mut self,
+        &self,
         resp: Response<Body>,
         _direction: GatewayDirection,
     ) -> impl Future<Output = Response<Body>> + Send {
@@ -77,7 +77,7 @@ pub trait GatewayHandler: Clone + Send + Sync + 'static {
 
     /// This handler will be called if a proxy request fails. Default response is a 502 Bad Gateway.
     fn handle_error(
-        &mut self,
+        &self,
         err: GatewayForwardError,
         _direction: GatewayDirection,
     ) -> impl Future<Output = Response<Body>> + Send {

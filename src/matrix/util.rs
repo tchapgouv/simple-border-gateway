@@ -25,7 +25,7 @@ impl NameResolver {
         }
     }
 
-    pub fn domain_to_server_name(&mut self, domain: &str) -> String {
+    pub fn domain_to_server_name(&self, domain: &str) -> String {
         let domain = remove_default_https_port(domain);
         self.domain_server_name_map
             .get(domain)
@@ -33,12 +33,12 @@ impl NameResolver {
             .clone()
     }
 
-    pub fn ip_to_server_name(&mut self, ip: &IpAddr) -> String {
+    pub fn ip_to_server_name(&self, ip: &IpAddr) -> String {
         let domain = self.ip_to_domain(ip);
         self.domain_to_server_name(&domain)
     }
 
-    pub fn ip_to_domain(&mut self, ip: &IpAddr) -> String {
+    pub fn ip_to_domain(&self, ip: &IpAddr) -> String {
         #[allow(clippy::unwrap_used, reason = "rdns_cache should not be poisoned")]
         if let Some(cached_domain) = self.rdns_cache.read().unwrap().get(ip) {
             return cached_domain.clone();

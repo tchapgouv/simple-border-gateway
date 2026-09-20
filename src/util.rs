@@ -305,7 +305,7 @@ impl RequestContext {
         parts: Parts,
         direction: GatewayDirection,
         client_addr: SocketAddr,
-        name_resolver: &mut NameResolver,
+        name_resolver: &NameResolver,
     ) -> Self {
         let xmatrix = parts
             .headers
