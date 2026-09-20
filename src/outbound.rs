@@ -101,11 +101,7 @@ impl GatewayHandler for OutboundHandler {
                 ctx.log(Level::Info, "forward, allowed legacy media request");
             }
             EndpointType::WellKnown => {
-                if !self.allowed_server_names.contains(&ctx.destination_host)
-                    && !self
-                        .allowed_federation_domains
-                        .contains(&ctx.destination_host)
-                {
+                if !self.allowed_server_names.contains(&ctx.destination_host) {
                     ctx.log(Level::Warn, "403 - forbidden, unauthorized base domain");
                     return create_matrix_response(StatusCode::FORBIDDEN, "M_FORBIDDEN").into();
                 }

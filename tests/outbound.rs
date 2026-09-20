@@ -220,7 +220,7 @@ async fn test_custom_endpoint() {
 
     // Should be accepted as it's an allowed custom endpoint
     let response = client
-        .get("https://federation.target.org/.well-known/matrix/element_call")
+        .get("https://target.org/.well-known/matrix/element_call")
         .send()
         .await
         .unwrap();
