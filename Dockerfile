@@ -1,10 +1,10 @@
-# syntax=docker/dockerfile:1-labs
+# syntax=docker/dockerfile:1
 
 # The Debian version and version name must be in sync
-ARG DEBIAN_VERSION=12
-ARG DEBIAN_VERSION_NAME=bookworm
-ARG RUSTC_VERSION=1.90.0
-ARG CARGO_AUDITABLE_VERSION=0.7.1
+ARG DEBIAN_VERSION=13
+ARG DEBIAN_VERSION_NAME=trixie
+ARG RUSTC_VERSION=1.98.1
+ARG CARGO_AUDITABLE_VERSION=0.7.6
 
 ########################################
 ## Build stage that builds the binary ##
@@ -38,9 +38,6 @@ RUN --network=default \
     --release \
     --target x86_64-unknown-linux-gnu \
   && rm -rf src
-
-ARG VERGEN_GIT_DESCRIBE
-ENV VERGEN_GIT_DESCRIBE=${VERGEN_GIT_DESCRIBE}
 
 # Copy the code
 COPY . .
