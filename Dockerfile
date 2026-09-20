@@ -27,7 +27,7 @@ RUN --network=default \
 # sources below only rebuilds the workspace crates instead of the whole
 # dependency tree. The workspace crates are stubbed out for this step.
 # Network access: to fetch dependencies
-COPY Cargo.toml Cargo.lock ./
+COPY Cargo.toml Cargo.lock .
 RUN --network=default \
     --mount=type=cache,target=/usr/local/cargo/registry \
   mkdir -p src \
@@ -36,25 +36,21 @@ RUN --network=default \
   && cargo auditable build \
     --locked \
     --release \
-    --target x86_64-unknown-linux-gnu \
   && rm -rf src
 
-# Copy the code
 COPY . .
 
 # BuildKit copies the files with their original timestamps, which are older than
 # the artifacts produced by the stub build above. Cargo then considers the
 # workspace crate up to date and silently keeps the stub binary instead of
-# compiling the real sources, so clean the workspace crate first to force a rebuild.
-# Network access: to fetch dependencies
-RUN --network=default \
+# compiling the real sources, so let's touch the source files to force a rebuild.
+RUN --network=none \
     --mount=type=cache,target=/usr/local/cargo/registry \
-  cargo clean -p simple-border-gateway \
+  touch src/main.rs src/lib.rs \
   && cargo auditable build \
     --locked \
     --release \
-    --target x86_64-unknown-linux-gnu \
-  && mv "target/x86_64-unknown-linux-gnu/release/simple-border-gateway" /usr/local/bin/simple-border-gateway
+  && mv "target/release/simple-border-gateway" /usr/local/bin/simple-border-gateway
 
 ###################
 ## Runtime stage ##
