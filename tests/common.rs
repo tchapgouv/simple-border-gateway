@@ -6,10 +6,10 @@ use std::fs;
 fn test_base_url_deserialization() {
     let config_toml = r#"
         [inbound_proxy]
-        listen_adress = "0.0.0.0:8000"
+        listen_address = "0.0.0.0:8000"
         
         [outbound_proxy]
-        listen_adress = "0.0.0.0:3128"
+        listen_address = "0.0.0.0:3128"
 
         ca_priv_key = "ca.pem"
         ca_cert = "ca.crt"
@@ -42,10 +42,10 @@ fn test_base_url_deserialization() {
 fn test_config_deserialization() {
     let config_toml = r#"
         [inbound_proxy]
-        listen_adress = "0.0.0.0:8000"
+        listen_address = "0.0.0.0:8000"
         
         [outbound_proxy]
-        listen_adress = "0.0.0.0:3128"
+        listen_address = "0.0.0.0:3128"
 
         ca_priv_key = "ca.pem"
         ca_cert = "ca.crt"

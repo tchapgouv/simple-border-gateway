@@ -1,13 +1,13 @@
 # Commented conf lines are the default values
 
 [inbound_proxy]
-#listen_adress = "0.0.0.0:8000"
+#listen_address = "0.0.0.0:8000"
 additional_root_certs = [
     "root.crt"
 ]
 
 [outbound_proxy]
-#listen_adress = "0.0.0.0:3128"
+#listen_address = "0.0.0.0:3128"
 
 ca_priv_key = "ca.pem"
 ca_cert = "ca.crt"
