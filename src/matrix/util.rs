@@ -33,30 +33,37 @@ impl NameResolver {
             .clone()
     }
 
-    pub fn ip_to_server_name(&self, ip: &IpAddr) -> String {
-        let domain = self.ip_to_domain(ip);
+    pub async fn ip_to_server_name(&self, ip: &IpAddr) -> String {
+        let domain = self.ip_to_domain(ip).await;
         self.domain_to_server_name(&domain)
     }
 
-    pub fn ip_to_domain(&self, ip: &IpAddr) -> String {
+    pub async fn ip_to_domain(&self, ip: &IpAddr) -> String {
         #[allow(clippy::unwrap_used, reason = "rdns_cache should not be poisoned")]
         if let Some(cached_domain) = self.rdns_cache.read().unwrap().get(ip) {
             return cached_domain.clone();
         }
 
-        // Let's still cache a bit even if we failed to lookup the rdns,
-        // to not try again on each req
-        let (domain, validity_minutes) = match dns_lookup::lookup_addr(ip) {
-            Ok(domain) => (domain, 60),
-            Err(_) => (ip.to_string(), 10),
-        };
-        #[allow(clippy::unwrap_used, reason = "rdns_cache should not be poisoned")]
-        self.rdns_cache.write().unwrap().insert(
-            *ip,
-            domain.clone(),
-            Duration::from_secs(validity_minutes * 60),
-        );
-        domain
+        // Reverse DNS is a blocking syscall, run it on the blocking pool
+        let ip = *ip;
+        let rdns_cache = Arc::clone(&self.rdns_cache);
+        tokio::task::spawn_blocking(move || {
+            // Let's still cache a bit even if we failed to lookup the rdns,
+            // to not try again on each req
+            let (domain, validity_minutes) = match dns_lookup::lookup_addr(&ip) {
+                Ok(domain) => (domain, 60),
+                Err(_) => (ip.to_string(), 10),
+            };
+            #[allow(clippy::unwrap_used, reason = "rdns_cache should not be poisoned")]
+            rdns_cache.write().unwrap().insert(
+                ip,
+                domain.clone(),
+                Duration::from_secs(validity_minutes * 60),
+            );
+            domain
+        })
+        .await
+        .unwrap_or_else(|_| ip.to_string())
     }
 }
 

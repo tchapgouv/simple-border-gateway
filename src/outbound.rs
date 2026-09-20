@@ -41,7 +41,7 @@ impl GatewayHandler for OutboundHandler {
         client_addr: SocketAddr,
     ) -> RequestOrResponse {
         let (parts, body) = req.into_parts();
-        let ctx = RequestContext::new(parts, direction, client_addr, &self.name_resolver);
+        let ctx = RequestContext::new(parts, direction, client_addr, &self.name_resolver).await;
 
         // Non-matrix regexes bypass per-server ruleset routing entirely
         let uri = remove_default_ports_from_uri(ctx.parts.uri.clone());

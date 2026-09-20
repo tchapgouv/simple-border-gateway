@@ -301,7 +301,7 @@ pub(crate) struct RequestContext {
 }
 
 impl RequestContext {
-    pub(crate) fn new(
+    pub(crate) async fn new(
         parts: Parts,
         direction: GatewayDirection,
         client_addr: SocketAddr,
@@ -318,7 +318,7 @@ impl RequestContext {
         } else {
             // Origin server name not available in auth header, let's try to guess it from the client IP
             let origin_ip = extract_origin_ip(&parts, &direction, &client_addr);
-            name_resolver.ip_to_server_name(&origin_ip)
+            name_resolver.ip_to_server_name(&origin_ip).await
         };
 
         let destination_host = extract_destination_host(&parts, &direction).to_string();
