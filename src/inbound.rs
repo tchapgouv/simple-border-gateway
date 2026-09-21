@@ -123,7 +123,9 @@ impl InboundHandler {
             return create_status_response(StatusCode::PAYLOAD_TOO_LARGE).into();
         };
 
-        let Ok(body) = String::from_utf8(body.to_vec()) else {
+        // Only borrow the body as a `&str` for verification, so the original `Bytes`
+        // can be forwarded without copying the (potentially multi-MiB) payload.
+        let Ok(body_str) = std::str::from_utf8(&body) else {
             ctx.log(Level::Warn, "400 - bad request, req body not utf8");
             return create_status_response(StatusCode::BAD_REQUEST).into();
         };
@@ -132,7 +134,7 @@ impl InboundHandler {
             &self.public_key_map,
             &ctx.parts,
             x_matrix,
-            &body,
+            body_str,
             &ctx.destination_server_name,
         ) {
             Ok(()) => {
