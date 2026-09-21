@@ -385,8 +385,7 @@ pub fn create_http_client(
     if let Some(upstream_proxy_config) = upstream_proxy_config {
         let mut proxy_builder = reqwest::Proxy::all(upstream_proxy_config.url)
             .whatever_context("Failed to create reqwest proxy config")?;
-        if upstream_proxy_config.username.is_some() || upstream_proxy_config.password.is_some()
-        {
+        if upstream_proxy_config.username.is_some() || upstream_proxy_config.password.is_some() {
             proxy_builder = proxy_builder.basic_auth(
                 upstream_proxy_config.username.as_deref().unwrap_or(""),
                 upstream_proxy_config.password.as_deref().unwrap_or(""),
