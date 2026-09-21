@@ -17,8 +17,6 @@ type BoxedStdError = Box<dyn std::error::Error + Send + Sync>;
 pub enum GatewayForwardError {
     #[snafu(display("Failed to convert request"))]
     ConvertRequest { source: BoxedStdError },
-    #[snafu(display("Failed to convert response"))]
-    ConvertResponse { source: BoxedStdError },
     #[snafu(display("Failed to forward request"))]
     Forward { source: BoxedStdError },
     #[snafu(display("Destination not found for host {host}"))]

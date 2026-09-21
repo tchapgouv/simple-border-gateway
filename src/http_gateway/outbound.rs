@@ -3,15 +3,12 @@ use std::net::SocketAddr;
 use http::Method;
 use http_body_util::BodyExt as _;
 use hudsucker::{Proxy, certificate_authority::RcgenAuthority};
-use log::error;
 use rcgen::{Issuer, KeyPair};
 use rustls::crypto::CryptoProvider;
 use snafu::{ResultExt, Snafu};
 
 use crate::http_gateway::{
-    ConvertRequestSnafu, ConvertResponseSnafu, GatewayDirection, GatewayForwardError,
-    GatewayHandler, RequestOrResponse,
-    util::{create_status_response, shutdown_signal},
+    GatewayDirection, GatewayForwardError, GatewayHandler, RequestOrResponse, util::shutdown_signal,
 };
 
 #[derive(Debug, Snafu)]
@@ -103,12 +100,7 @@ impl<H: GatewayHandler> hudsucker::HttpHandler for HandlerAdapter<H> {
             return req.into();
         }
 
-        let req = match convert_request(req) {
-            Ok(req) => req,
-            Err(e) => {
-                return self.handle_gateway_error(ctx, e).await.into();
-            }
-        };
+        let req = convert_request(req);
 
         let req_or_resp = self
             .handler
@@ -149,30 +141,20 @@ impl<H: GatewayHandler> hudsucker::HttpHandler for HandlerAdapter<H> {
             }
             RequestOrResponse::Response(resp) => resp,
         };
-        match convert_response_to_hudsucker(resp) {
-            Ok(resp) => resp,
-            Err(e) => return self.handle_gateway_error(ctx, e).await.into(),
-        }
-        .into()
+        convert_response_to_hudsucker(resp).into()
     }
 
     async fn handle_response(
         &mut self,
-        ctx: &hudsucker::HttpContext,
+        _ctx: &hudsucker::HttpContext,
         resp: http::Response<hudsucker::Body>,
     ) -> http::Response<hudsucker::Body> {
-        let resp = match convert_response_to_reqwest(resp) {
-            Ok(resp) => resp,
-            Err(e) => return self.handle_gateway_error(ctx, e).await,
-        };
+        let resp = convert_response_to_reqwest(resp);
         let resp = self
             .handler
             .handle_response(resp, GatewayDirection::Outbound)
             .await;
-        match convert_response_to_hudsucker(resp) {
-            Ok(res) => res,
-            Err(e) => return self.handle_gateway_error(ctx, e).await,
-        }
+        convert_response_to_hudsucker(resp)
     }
 
     async fn handle_error(
@@ -196,38 +178,27 @@ impl<H: GatewayHandler> HandlerAdapter<H> {
         _ctx: &hudsucker::HttpContext,
         err: GatewayForwardError,
     ) -> http::Response<hudsucker::Body> {
-        match convert_response_to_hudsucker(
+        convert_response_to_hudsucker(
             self.handler
                 .handle_error(err, GatewayDirection::Outbound)
                 .await,
-        ) {
-            Ok(res) => res,
-            Err(e) => {
-                error!("Error converting error response: {e}");
-                create_status_response(http::StatusCode::BAD_GATEWAY)
-            }
-        }
+        )
     }
 }
 
-fn convert_request(
-    req: http::Request<hudsucker::Body>,
-) -> Result<http::Request<reqwest::Body>, GatewayForwardError> {
-    let (parts, body) = req.into_parts();
-    let mut builder = http::Request::builder().method(parts.method).uri(parts.uri);
-    for (name, value) in &parts.headers {
-        builder = builder.header(name, value);
-    }
-
-    builder
-        .body(reqwest::Body::wrap_stream(body.into_data_stream()))
-        .boxed()
-        .context(ConvertRequestSnafu {})
+fn convert_request(req: http::Request<hudsucker::Body>) -> http::Request<reqwest::Body> {
+    let (mut parts, body) = req.into_parts();
+    // hudsucker hands us the request with the version of the connection it arrived on
+    // (which may be HTTP/2), but reqwest's client rejects an explicitly versioned request
+    // that does not match its own transport. Let the client negotiate the version itself,
+    // matching the previous rebuild which always defaulted to HTTP/1.1.
+    parts.version = http::Version::HTTP_11;
+    http::Request::from_parts(parts, reqwest::Body::wrap_stream(body.into_data_stream()))
 }
 
 fn convert_response_to_hudsucker(
     resp: http::Response<reqwest::Body>,
-) -> Result<http::Response<hudsucker::Body>, GatewayForwardError> {
+) -> http::Response<hudsucker::Body> {
     convert_response(resp, |body| {
         hudsucker::Body::from_stream(futures::StreamExt::map(body.into_data_stream(), |result| {
             result.map_err(std::io::Error::other)
@@ -237,7 +208,7 @@ fn convert_response_to_hudsucker(
 
 fn convert_response_to_reqwest(
     resp: http::Response<hudsucker::Body>,
-) -> Result<http::Response<reqwest::Body>, GatewayForwardError> {
+) -> http::Response<reqwest::Body> {
     convert_response(resp, |body| {
         reqwest::Body::wrap_stream(body.into_data_stream())
     })
@@ -246,15 +217,7 @@ fn convert_response_to_reqwest(
 fn convert_response<B1, B2>(
     resp: http::Response<B1>,
     convert_body: fn(B1) -> B2,
-) -> Result<http::Response<B2>, GatewayForwardError> {
+) -> http::Response<B2> {
     let (parts, body) = resp.into_parts();
-    let mut builder = http::Response::builder().status(parts.status);
-    for (name, value) in &parts.headers {
-        builder = builder.header(name, value);
-    }
-
-    builder
-        .body(convert_body(body))
-        .boxed()
-        .context(ConvertResponseSnafu {})
+    http::Response::from_parts(parts, convert_body(body))
 }

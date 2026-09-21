@@ -9,7 +9,7 @@ use tokio::net::TcpListener;
 use tracing::Level;
 
 use crate::http_gateway::{
-    ConvertRequestSnafu, GatewayDirection, GatewayForwardError, GatewayHandler, RequestOrResponse,
+    GatewayDirection, GatewayForwardError, GatewayHandler, RequestOrResponse,
     util::{extract_destination_host, shutdown_signal},
 };
 
@@ -105,15 +105,7 @@ async fn inbound_handler<H: GatewayHandler>(
     ConnectInfo(socket_addr): ConnectInfo<SocketAddr>,
     req: http::Request<axum::body::Body>,
 ) -> http::Response<reqwest::Body> {
-    let req = match convert_request(req) {
-        Ok(req) => req,
-        Err(e) => {
-            return state
-                .handler
-                .handle_error(e, GatewayDirection::Inbound)
-                .await;
-        }
-    };
+    let req = convert_request(req);
     let req_or_resp = state
         .handler
         .handle_request(req, GatewayDirection::Inbound, socket_addr)
@@ -191,18 +183,10 @@ async fn forward_request<H: GatewayHandler>(
     }
 }
 
-fn convert_request(
-    req: http::Request<axum::body::Body>,
-) -> Result<http::Request<reqwest::Body>, GatewayForwardError> {
-    let mut builder = http::Request::builder().method(req.method()).uri(req.uri());
-    for (name, value) in req.headers() {
-        builder = builder.header(name, value);
-    }
-
-    builder
-        .body(reqwest::Body::wrap_stream(
-            req.into_body().into_data_stream(),
-        ))
-        .boxed()
-        .context(ConvertRequestSnafu {})
+fn convert_request(req: http::Request<axum::body::Body>) -> http::Request<reqwest::Body> {
+    let (parts, body) = req.into_parts();
+    http::Request::from_parts(
+        parts,
+        reqwest::Body::wrap_stream(body.into_data_stream()),
+    )
 }
