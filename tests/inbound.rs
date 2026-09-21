@@ -8,21 +8,20 @@ use simple_border_gateway::http_gateway::inbound::InboundGatewayBuilder;
 use simple_border_gateway::inbound::InboundHandler;
 use simple_border_gateway::matrix::spec::{Action, AuthType, EndpointType};
 use simple_border_gateway::matrix::util::NameResolver;
-use simple_border_gateway::util::{CompiledRuleset, RegexEndpoint, install_crypto_provider};
+use simple_border_gateway::util::{
+    CompiledRuleset, Endpoint, EndpointRouter, install_crypto_provider,
+};
 use std::collections::BTreeMap;
 
 fn no_overridden_ruleset() -> CompiledRuleset {
-    CompiledRuleset {
-        additional_endpoints: vec![],
-        action_overrides: BTreeMap::new(),
-    }
+    CompiledRuleset::default()
 }
 
 /// Minimal ruleset for the tests: overrides actions on some default endpoints
 fn test_ruleset() -> CompiledRuleset {
     CompiledRuleset {
-        additional_endpoints: vec![
-            RegexEndpoint::new(
+        additional_endpoints: EndpointRouter::new(vec![
+            Endpoint::new(
                 "well_known_element_call",
                 "/.well-known/matrix/element_call",
                 Some(Method::GET),
@@ -32,7 +31,8 @@ fn test_ruleset() -> CompiledRuleset {
                 Action::Allow,
             )
             .expect("Invalid endpoint definition"),
-        ],
+        ])
+        .expect("Invalid endpoint router"),
         action_overrides: BTreeMap::from([
             (
                 "well_known_server".to_string(),
@@ -133,6 +133,60 @@ async fn test_invalid_endpoint() {
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_endpoint_postfix_anchor_violation() {
+    let (mock_server, port, _) = setup_mock_gateway(true, false).await;
+
+    let method = "GET";
+    let path = "/_matrix/federation/v1/query/profile/_matrix/key/v2/server";
+    let destination_name = "target.org";
+
+    let mock = mock_server.mock(|when, then| {
+        when.method(method).path(path);
+        then.status(200);
+    });
+
+    let response = reqwest::Client::new()
+        .request(
+            method.parse().unwrap(),
+            format!("http://localhost:{}{}", port, path),
+        )
+        .header("X-Forwarded-Host", destination_name)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(mock.calls(), 0);
+}
+
+#[tokio::test]
+async fn test_endpoint_prefix_anchor_violation() {
+    let (mock_server, port, _) = setup_mock_gateway(true, false).await;
+
+    let method = "GET";
+    let path = "/prefix/_matrix/key/v2/server";
+    let destination_name = "target.org";
+
+    let mock = mock_server.mock(|when, then| {
+        when.method(method).path(path);
+        then.status(200);
+    });
+
+    let response = reqwest::Client::new()
+        .request(
+            method.parse().unwrap(),
+            format!("http://localhost:{}{}", port, path),
+        )
+        .header("X-Forwarded-Host", destination_name)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(mock.calls(), 0);
 }
 
 // Test a custom endpoint added in the ruleset.

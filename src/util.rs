@@ -5,7 +5,7 @@ use bytes::Bytes;
 use http::{Method, request::Parts, uri::Scheme};
 use http_body_util::{BodyExt, Limited};
 use log::{Level, log};
-use regex::Regex;
+use matchit::Router;
 use reqwest::Body;
 use ruma::api::federation::authentication::XMatrix;
 use snafu::{ResultExt as _, Whatever};
@@ -47,13 +47,15 @@ pub struct RuntimeRule {
 }
 
 #[derive(Clone, Debug)]
-pub struct RegexEndpoint {
+pub struct Endpoint {
     pub id: String,
-    regex: Regex,
+    /// Path pattern matched by the router, using `{name}` placeholders.
+    /// A trailing `{*name}` placeholder matches the remaining path segments.
+    pub path: String,
     pub rule: RuntimeRule,
 }
 
-impl RegexEndpoint {
+impl Endpoint {
     /// Build a new endpoint with the specified arguments.
     pub fn new(
         id: &str,
@@ -63,10 +65,11 @@ impl RegexEndpoint {
         endpoint_type: EndpointType,
         inbound_action: Action,
         outbound_action: Action,
-    ) -> Result<Self, regex::Error> {
+    ) -> Result<Self, Whatever> {
+        validate_path(path)?;
         Ok(Self {
             id: id.to_string(),
-            regex: path_to_regex(path)?,
+            path: path.to_string(),
             rule: RuntimeRule {
                 method,
                 endpoint_type,
@@ -85,18 +88,16 @@ impl RegexEndpoint {
         method: Option<Method>,
         auth_type: AuthType,
         endpoint_type: EndpointType,
-    ) -> Result<Self, regex::Error> {
-        Ok(Self {
-            id: id.to_string(),
-            regex: path_to_regex(path)?,
-            rule: RuntimeRule {
-                method,
-                endpoint_type,
-                auth_type,
-                inbound_action: Action::Allow,
-                outbound_action: Action::Allow,
-            },
-        })
+    ) -> Result<Self, Whatever> {
+        Self::new(
+            id,
+            path,
+            method,
+            auth_type,
+            endpoint_type,
+            Action::Allow,
+            Action::Allow,
+        )
     }
 
     /// Build an allowed endpoint using signed federation defaults.
@@ -104,7 +105,7 @@ impl RegexEndpoint {
         id: &str,
         path: &str,
         method: Option<Method>,
-    ) -> Result<Self, regex::Error> {
+    ) -> Result<Self, Whatever> {
         Self::new_allowed(
             id,
             path,
@@ -115,39 +116,112 @@ impl RegexEndpoint {
     }
 }
 
+/// A set of endpoints compiled into a `matchit` router for path matching.
+/// Several endpoints can share the same path as long as they match different methods.
+#[derive(Clone)]
+pub struct EndpointRouter {
+    router: Router<Vec<Endpoint>>,
+    endpoint_count: usize,
+}
+
+impl EndpointRouter {
+    /// Compile endpoints into a router, grouping together endpoints that share a path.
+    pub fn new(endpoints: Vec<Endpoint>) -> Result<Self, Whatever> {
+        let endpoint_count = endpoints.len();
+        let mut groups: Vec<(String, Vec<Endpoint>)> = Vec::new();
+        for endpoint in endpoints {
+            if let Some((_, group)) = groups.iter_mut().find(|(path, _)| path == &endpoint.path) {
+                group.push(endpoint);
+            } else {
+                let path = endpoint.path.clone();
+                groups.push((path, vec![endpoint]));
+            }
+        }
+
+        let mut router = Router::new();
+        for (path, group) in groups {
+            if let Err(e) = router.insert(path.clone(), group) {
+                snafu::whatever!("Failed to compile endpoint path pattern '{path}': {e}");
+            }
+        }
+
+        Ok(Self {
+            router,
+            endpoint_count,
+        })
+    }
+
+    /// An empty router, matching no path.
+    pub fn empty() -> Self {
+        Self {
+            router: Router::new(),
+            endpoint_count: 0,
+        }
+    }
+
+    /// Number of endpoints held by this router, including endpoints sharing a path.
+    pub fn len(&self) -> usize {
+        self.endpoint_count
+    }
+
+    /// Whether this router holds no endpoint.
+    pub fn is_empty(&self) -> bool {
+        self.endpoint_count == 0
+    }
+
+    /// Find the endpoint matching the request path and method, if any.
+    pub fn get(&self, parts: &Parts) -> Option<&Endpoint> {
+        let matched = self.router.at(parts.uri.path()).ok()?;
+        matched
+            .value
+            .iter()
+            .find(|endpoint| match &endpoint.rule.method {
+                Some(expected) => *expected == parts.method,
+                None => true,
+            })
+    }
+}
+
 /// A compiled ruleset combining additional endpoint definitions with action overrides.
 #[derive(Clone)]
 pub struct CompiledRuleset {
-    pub additional_endpoints: Vec<RegexEndpoint>,
+    pub additional_endpoints: EndpointRouter,
     pub action_overrides: BTreeMap<String, (Action, Action)>,
+}
+
+impl Default for CompiledRuleset {
+    fn default() -> Self {
+        Self {
+            additional_endpoints: EndpointRouter::empty(),
+            action_overrides: BTreeMap::new(),
+        }
+    }
 }
 
 /// Result of endpoint resolution.
 /// Contains the matched endpoint and the action to take for inbound and outbound requests.
 /// Will also return if this endpoint is an override of a default endpoint in the ruleset.
 pub(crate) struct ResolvedEndpoint<'a> {
-    pub(crate) endpoint: &'a RegexEndpoint,
+    pub(crate) endpoint: &'a Endpoint,
     pub(crate) inbound_action: Action,
     pub(crate) outbound_action: Action,
     pub(crate) is_override: bool,
 }
 
-#[allow(clippy::unwrap_used, reason = "lazy static regex")]
-static REPLACE_VARIABLES_RE: std::sync::LazyLock<Regex> =
-    std::sync::LazyLock::new(|| Regex::new("\\{[^\\}]*}").unwrap());
-
-fn path_to_regex(path: &str) -> Result<Regex, regex::Error> {
-    let escaped = path.replace('.', "\\.");
-    let pattern = REPLACE_VARIABLES_RE.replace_all(&escaped, ".*");
-    Regex::new(&pattern)
+fn validate_path(path: &str) -> Result<(), Whatever> {
+    let mut probe: Router<()> = Router::new();
+    if let Err(e) = probe.insert(path, ()) {
+        snafu::whatever!("Invalid endpoint path pattern '{path}': {e}");
+    }
+    Ok(())
 }
 
-/// Convert additional endpoint configs into RegexEndpoints.
+/// Convert additional endpoint configs into a compiled endpoint router.
 /// Actions default to Reject/Reject since they are expected to be set via override_rules.
-pub fn build_regex_endpoints_from_endpoint_configs(
+pub fn build_endpoint_router_from_endpoint_configs(
     endpoints: &[EndpointConfig],
-) -> Result<Vec<RegexEndpoint>, Whatever> {
-    endpoints
+) -> Result<EndpointRouter, Whatever> {
+    let endpoints = endpoints
         .iter()
         .map(|e| {
             let method = e
@@ -159,14 +233,9 @@ pub fn build_regex_endpoints_from_endpoint_configs(
                 })
                 .transpose()?;
 
-            let regex = path_to_regex(&e.path).whatever_context(format!(
-                "Invalid path pattern '{}' in endpoint '{}'",
-                e.path, e.id
-            ))?;
-
-            Ok(RegexEndpoint {
+            Ok(Endpoint {
                 id: e.id.clone(),
-                regex,
+                path: e.path.clone(),
                 rule: RuntimeRule {
                     method,
                     endpoint_type: e.endpoint_type,
@@ -176,7 +245,10 @@ pub fn build_regex_endpoints_from_endpoint_configs(
                 },
             })
         })
-        .collect()
+        .collect::<Result<Vec<_>, Whatever>>()?;
+
+    EndpointRouter::new(endpoints)
+        .whatever_context("Failed to compile additional endpoints into a router")
 }
 
 /// Compile override rules into a map of endpoint ID → (inbound_action, outbound_action).
@@ -210,51 +282,29 @@ pub fn compile_override_rules(
     Ok(map)
 }
 
-pub(crate) fn get_matching_endpoint<'a>(
-    parts: &Parts,
-    allowed_endpoints: &'a [RegexEndpoint],
-) -> Option<&'a RegexEndpoint> {
-    for endpoint in allowed_endpoints {
-        if endpoint.regex.is_match(parts.uri.to_string().as_str()) {
-            if let Some(expected_method) = &endpoint.rule.method {
-                if expected_method == parts.method {
-                    return Some(endpoint);
-                }
-            } else {
-                return Some(endpoint);
-            }
-        }
-    }
-    None
-}
-
 /// Resolve an endpoint for a server and apply its action overrides.
 pub(crate) fn resolve_endpoint<'a>(
     parts: &Parts,
     external_server_name: &str,
     server_rulesets: &'a BTreeMap<String, CompiledRuleset>,
-    default_ruleset: &'a [RegexEndpoint],
+    default_ruleset: &'a EndpointRouter,
 ) -> Option<ResolvedEndpoint<'a>> {
     // Use override rules if the server has a configured ruleset, otherwise fall through to the
     // default ruleset
     let ruleset = server_rulesets.get(external_server_name);
-    let additional_endpoints = ruleset
-        .map(|ruleset| ruleset.additional_endpoints.as_slice())
-        .unwrap_or_default();
 
     debug!(
         "Ruleset lookup for external server '{external_server_name}': found ruleset: {}, additional endpoints: {}",
         ruleset.is_some(),
-        additional_endpoints.len()
+        ruleset.map_or(0, |ruleset| ruleset.additional_endpoints.len())
     );
 
     // Two-tier lookup, additional endpoints take precedence, then fall back to the default
     // ruleset
     let (endpoint, is_from_additional) =
-        if let Some(endpoint) = get_matching_endpoint(parts, additional_endpoints) {
-            (endpoint, true)
-        } else {
-            (get_matching_endpoint(parts, default_ruleset)?, false)
+        match ruleset.and_then(|ruleset| ruleset.additional_endpoints.get(parts)) {
+            Some(endpoint) => (endpoint, true),
+            None => (default_ruleset.get(parts)?, false),
         };
 
     // Determine effective actions: check the override rules by endpoint ID, otherwise use the

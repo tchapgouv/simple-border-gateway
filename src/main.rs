@@ -6,7 +6,7 @@ use simple_border_gateway::inbound::InboundHandler;
 use simple_border_gateway::matrix::util::NameResolver;
 use simple_border_gateway::outbound::OutboundHandler;
 use simple_border_gateway::util::{
-    CompiledRuleset, build_regex_endpoints_from_endpoint_configs, compile_override_rules,
+    CompiledRuleset, build_endpoint_router_from_endpoint_configs, compile_override_rules,
     create_http_client, crypto_provider, install_crypto_provider, read_pem,
 };
 use snafu::{Report, ResultExt, Whatever};
@@ -79,7 +79,7 @@ fn prepare_services(
     let mut named_rulesets: BTreeMap<String, CompiledRuleset> = BTreeMap::new();
     for ruleset in &config.rulesets {
         let additional_endpoints =
-            build_regex_endpoints_from_endpoint_configs(&ruleset.additional_endpoints)
+            build_endpoint_router_from_endpoint_configs(&ruleset.additional_endpoints)
                 .whatever_context(format!(
                     "Failed to build additional endpoints for ruleset '{}'",
                     ruleset.name
@@ -140,10 +140,7 @@ fn prepare_services(
             },
             None => {
                 info!("Using default ruleset for homeserver '{}'", hs.server_name);
-                CompiledRuleset {
-                    additional_endpoints: vec![],
-                    action_overrides: BTreeMap::new(),
-                }
+                CompiledRuleset::default()
             }
         };
         server_rulesets.insert(hs.server_name.clone(), compiled_ruleset);

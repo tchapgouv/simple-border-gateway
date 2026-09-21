@@ -43,7 +43,7 @@ impl GatewayHandler for InboundHandler {
             &ctx.parts,
             &ctx.origin_server_name,
             &self.server_rulesets,
-            DEFAULT_RULESET.as_slice(),
+            &DEFAULT_RULESET,
         ) else {
             ctx.log(Level::Warn, "404 - not found, unknown endpoint");
             return create_status_response(StatusCode::NOT_FOUND).into();

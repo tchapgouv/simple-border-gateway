@@ -30,6 +30,8 @@ tower-http = { version = "0.7", features = ["trace"] }
 
 http = "1"
 
+matchit = "0.8"
+
 ruma = { version = "0.17", default-features = false, features = [
     "federation-api",
 ] }

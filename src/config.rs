@@ -61,6 +61,8 @@ pub struct ExternalHomeserverConfig {
 #[serde(deny_unknown_fields)]
 pub struct EndpointConfig {
     pub id: String,
+    /// Path pattern to match. `{name}` matches a single path segment, while a
+    /// trailing `{*name}` matches all remaining segments.
     pub path: String,
     /// HTTP method to match. Omit to match any method.
     pub method: Option<String>,

@@ -11,7 +11,8 @@ use simple_border_gateway::matrix::spec::{Action, AuthType, EndpointType};
 use simple_border_gateway::matrix::util::NameResolver;
 use simple_border_gateway::outbound::OutboundHandler;
 use simple_border_gateway::util::{
-    CompiledRuleset, RegexEndpoint, create_http_client, crypto_provider, install_crypto_provider,
+    CompiledRuleset, Endpoint, EndpointRouter, create_http_client, crypto_provider,
+    install_crypto_provider,
 };
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -101,8 +102,8 @@ async fn setup_mock_gateway(
         BTreeMap::from([(
             "target.org".to_string(),
             CompiledRuleset {
-                additional_endpoints: vec![
-                    RegexEndpoint::new(
+                additional_endpoints: EndpointRouter::new(vec![
+                    Endpoint::new(
                         "well_known_element_call",
                         "/.well-known/matrix/element_call",
                         Some(Method::GET),
@@ -112,7 +113,8 @@ async fn setup_mock_gateway(
                         Action::Allow,
                     )
                     .expect("Invalid endpoint definition"),
-                ],
+                ])
+                .expect("Invalid endpoint router"),
                 action_overrides: BTreeMap::from([
                     ("query_profile".to_string(), (Action::Allow, Action::Allow)),
                     ("3pid_onbind".to_string(), (Action::Reject, Action::Reject)),
