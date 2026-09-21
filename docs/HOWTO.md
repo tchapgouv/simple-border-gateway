@@ -61,7 +61,7 @@ Below is a breakdown of the main sections:
     These are used by the outbound proxy to dynamically sign short-lived certificates for target domains, allowing inspection and policy enforcement on encrypted HTTPS traffic. **CA certificates protected with a password are not currently supported**.
     
 - `additional_root_certs`: optional list of extra CA certificates trusted by the gateway. It can either be a path or the certificate, directly.
-- `allowed_non_matrix_regexes_dangerous`: optional patterns allowing specific non-Matrix endpoints, besides the federations traffic.
+- `hazmat_non_matrix_endpoints`: optional list of endpoints allowed on specific non-Matrix domains, besides the federation traffic. Each entry defines an `id`, the destination `domain` it applies to (**required**), a `path` pattern (`{name}` matches a single path segment, a trailing `{*name}` matches all remaining segments) and an optional `method`. A request is forwarded when its destination host matches `domain` and its path (and method, if set) matches the endpoint. This can be useful if other traffic needs to go through the gateway, like push notifications.
 - **`[outbound_proxy.upstream_proxy]`:** (Optional) Defines an upstream proxy if outbound traffic must be chained through another proxy layer.
 - **`[[internal_homeservers]]`:** Declares homeservers that belong to the private federation.
     
@@ -92,9 +92,11 @@ ca_cert = "ca.crt"
 
 additional_root_certs = ["/data/ca_cit.crt"]
 
-allowed_non_matrix_regexes_dangerous = [
-    "https://ntfy\\.sh/.*"
-]
+[[outbound_proxy.hazmat_non_matrix_endpoints]]
+id = "webpush_mozilla"
+domain = "updates.push.services.mozilla.com"
+path = "{*anything}"
+method = "POST"
 
 [outbound_proxy.upstream_proxy]
 url = "https://127.0.0.1:3128"

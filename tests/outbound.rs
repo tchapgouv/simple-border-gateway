@@ -2,7 +2,7 @@ use http::{Method, Request, Response, StatusCode};
 use rand::RngExt;
 use rcgen::{BasicConstraints, CertificateParams, IsCa, KeyPair};
 use reqwest::{Body, Proxy};
-use simple_border_gateway::config::UpstreamProxyConfig;
+use simple_border_gateway::config::{EndpointConfig, UpstreamProxyConfig};
 use simple_border_gateway::http_gateway::outbound::OutboundGatewayBuilder;
 use simple_border_gateway::http_gateway::{
     GatewayDirection, GatewayForwardError, GatewayHandler, RequestOrResponse,
@@ -98,7 +98,14 @@ async fn setup_mock_gateway(
             "target.org".to_string(),
         )]),
         BTreeMap::from([("matrix.target.org".to_string(), "target.org".to_string())]),
-        vec!["https://matrix\\.org/_matrix/push/v1/notify".to_string()],
+        vec![EndpointConfig {
+            id: "webpush_mozilla".to_string(),
+            domain: Some("updates.push.services.mozilla.com".to_string()),
+            path: "{*anything}".to_string(),
+            method: None,
+            auth_type: AuthType::Unauthenticated,
+            endpoint_type: EndpointType::Federation,
+        }],
         BTreeMap::from([(
             "target.org".to_string(),
             CompiledRuleset {
@@ -386,22 +393,38 @@ async fn test_unauthorized_well_known_request() {
 }
 
 #[tokio::test]
-async fn test_allowed_non_matrix_regex() {
+async fn test_allowed_non_matrix_endpoint() {
     let (mock_server, client) = setup_mock_gateway(None, false).await;
 
     let mock = mock_server.mock(|when, then| {
-        when.method("GET").path("/_matrix/push/v1/notify");
+        when.method("GET").path("/wpush/v1/id");
         then.status(200);
     });
 
+    // updates.push.services.mozilla.com is not a known external homeserver,
+    // but this endpoint is explicitly allowed for that domain.
     let response = client
-        .get("https://matrix.org/_matrix/push/v1/notify")
+        .get("https://updates.push.services.mozilla.com/wpush/v1/id")
         .send()
         .await
         .unwrap();
 
     assert_eq!(response.status(), StatusCode::OK);
     mock.assert();
+}
+
+#[tokio::test]
+async fn test_non_matrix_endpoint_rejected_on_other_domain() {
+    let (_, client) = setup_mock_gateway(None, false).await;
+
+    // Same path, but a different destination domain than the one declared for the endpoint.
+    let response = client
+        .get("https://not-mozilla.org/wpush/v1/id")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]

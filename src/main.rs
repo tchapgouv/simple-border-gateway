@@ -194,7 +194,7 @@ fn prepare_services(
                 name_resolver,
                 allowed_federation_domains,
                 allowed_client_domains,
-                outbound_config.allowed_non_matrix_regexes_dangerous,
+                outbound_config.hazmat_non_matrix_endpoints,
                 server_rulesets,
                 cli.reject_all_by_default,
             )

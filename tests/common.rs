@@ -14,9 +14,11 @@ fn test_base_url_deserialization() {
         ca_priv_key = "ca.pem"
         ca_cert = "ca.crt"
         
-        allowed_non_matrix_regexes_dangerous = [
-            "https://ntfy\\.sh/.*"
-        ]
+        [[outbound_proxy.hazmat_non_matrix_endpoints]]
+        id = "webpush_mozilla"
+        domain = "updates.push.services.mozilla.com"
+        path = "{*anything}"
+        method = "POST"
         
         [[internal_homeservers]]
         server_name = "Tout.IM"
@@ -50,9 +52,11 @@ fn test_config_deserialization() {
         ca_priv_key = "ca.pem"
         ca_cert = "ca.crt"
         
-        allowed_non_matrix_regexes_dangerous = [
-            "https://ntfy\\.sh/.*"
-        ]
+        [[outbound_proxy.hazmat_non_matrix_endpoints]]
+        id = "webpush_mozilla"
+        domain = "updates.push.services.mozilla.com"
+        path = "{*anything}"
+        method = "POST"
         
         [[internal_homeservers]]
         server_name = "Tout.IM"
@@ -99,11 +103,13 @@ fn test_config_deserialization() {
     assert_eq!(outbound.ca_cert, "ca.crt");
     assert_eq!(outbound.ca_priv_key, "ca.pem");
 
-    // Checking the allowed non-matrix regexes
+    // Checking the non-matrix endpoints
+    assert_eq!(outbound.hazmat_non_matrix_endpoints.len(), 1);
     assert_eq!(
-        outbound.allowed_non_matrix_regexes_dangerous,
-        vec!["https://ntfy\\.sh/.*"]
+        outbound.hazmat_non_matrix_endpoints[0].domain.as_deref(),
+        Some("updates.push.services.mozilla.com")
     );
+    assert_eq!(outbound.hazmat_non_matrix_endpoints[0].path, "{*anything}");
 }
 
 #[test]

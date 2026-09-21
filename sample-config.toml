@@ -16,9 +16,10 @@ additional_root_certs = [
     "----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----"
 ]
 
-allowed_non_matrix_regexes_dangerous = [
-    "https://ntfy\\.sh/.*"
-]
+[[outbound_proxy.hazmat_non_matrix_endpoints]]
+id = "webpush_mozilla"
+domain = "updates.push.services.mozilla.com"
+path = "{*anything}"
 
 [outbound_proxy.upstream_proxy]
 url = "http://127.0.0.1:3128"

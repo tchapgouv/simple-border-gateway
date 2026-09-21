@@ -54,8 +54,6 @@ http-body-util = "0.1"
 
 dns-lookup = "4"
 
-regex = "1"
-
 toml = "1"
 
 url = "2"
@@ -65,9 +63,6 @@ axum-test = "21"
 httpmock = "0.8"
 tempfile = "3"
 rand = "0.10"
-# lazy_static = "1"
-# async_once = "0.2"
-
 
 [features]
 default = ["aws_lc_rs"]
