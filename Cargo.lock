@@ -2800,7 +2800,6 @@ dependencies = [
  "once_cell",
  "rand",
  "rcgen",
- "regex",
  "reqwest",
  "ruma",
  "rustls",

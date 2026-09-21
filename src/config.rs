@@ -56,7 +56,7 @@ pub struct ExternalHomeserverConfig {
     pub ruleset: Option<String>,
 }
 
-/// An endpoint definition with a unique ID, path pattern, and optional method/auth/type constraints.
+/// An endpoint definition with a unique ID, path pattern, and optional domain/method/auth/type constraints.
 #[derive(Clone, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct EndpointConfig {
@@ -72,6 +72,11 @@ pub struct EndpointConfig {
     /// Defaults to `"Federation"` when absent.
     #[serde(default)]
     pub endpoint_type: EndpointType,
+    /// Optional destination host this endpoint is restricted to.
+    /// Required for endpoints declared under `outbound_proxy.hazmat_non_matrix_endpoints`,
+    /// ignored in ruleset `additional_endpoints` (which are already scoped to a server).
+    #[serde(default)]
+    pub domain: Option<String>,
 }
 
 /// An override rule that references an endpoint by ID and specifies actions.
@@ -136,8 +141,13 @@ pub struct OutboundProxyConfig {
 
     pub ca_priv_key: String,
     pub ca_cert: String,
+    /// Endpoints allowed on specific external (non-Matrix) domains, in addition to the
+    /// federation traffic. Each endpoint must set `domain`; requests are forwarded when
+    /// both the destination host and the endpoint path (and method, if set) match.
+    ///
+    ///
     #[serde(default)]
-    pub allowed_non_matrix_regexes_dangerous: Vec<String>,
+    pub hazmat_non_matrix_endpoints: Vec<EndpointConfig>,
 }
 
 #[derive(Clone, Deserialize, PartialEq, Serialize)]

@@ -5,11 +5,11 @@ use std::{
 
 use http::{Request, StatusCode};
 use log::Level;
-use regex::Regex;
 use reqwest::Body;
 use snafu::{ResultExt, Whatever};
 
 use crate::{
+    config::EndpointConfig,
     http_gateway::{
         GatewayDirection, GatewayHandler, RequestOrResponse, util::create_status_response,
     },
@@ -17,7 +17,10 @@ use crate::{
         spec::{Action, DEFAULT_RULESET, EndpointType},
         util::{NameResolver, create_matrix_response},
     },
-    util::{CompiledRuleset, RequestContext, remove_default_ports_from_uri, resolve_endpoint},
+    util::{
+        CompiledRuleset, EndpointRouter, RequestContext, build_non_matrix_endpoint_routers,
+        resolve_endpoint,
+    },
 };
 
 #[derive(Clone)]
@@ -26,7 +29,8 @@ pub struct OutboundHandler {
     allowed_server_names: HashSet<String>,
     allowed_federation_domains: HashSet<String>,
     allowed_client_domains: HashSet<String>,
-    allowed_non_matrix_regexes: Vec<Regex>,
+    /// Endpoint routers for non-matrix destinations, keyed by destination host.
+    non_matrix_endpoints: BTreeMap<String, EndpointRouter>,
     /// Per-server-name compiled ruleset.
     server_rulesets: BTreeMap<String, CompiledRuleset>,
     /// When true, the default ruleset will reject everything that is not explicitly allowed by an override rule.
@@ -43,13 +47,16 @@ impl GatewayHandler for OutboundHandler {
         let (parts, body) = req.into_parts();
         let ctx = RequestContext::new(parts, direction, client_addr, &self.name_resolver).await;
 
-        // Non-matrix regexes bypass per-server ruleset routing entirely
-        let uri = remove_default_ports_from_uri(ctx.parts.uri.clone());
-        for regex in &self.allowed_non_matrix_regexes {
-            if regex.is_match(uri.as_str()) {
-                ctx.log(Level::Info, "forward, destination uri matches regex");
-                return Request::from_parts(ctx.parts, body).into();
-            }
+        // Non-matrix endpoints are matched by destination host and bypass per-server
+        // ruleset routing entirely.
+        if let Some(router) = self.non_matrix_endpoints.get(&ctx.destination_host)
+            && router.get(&ctx.parts).is_some()
+        {
+            ctx.log(
+                Level::Info,
+                "forward, destination matches an authorized non-matrix endpoint",
+            );
+            return Request::from_parts(ctx.parts, body).into();
         }
 
         // Call the main helper to resolve the endpoint with the active/applicable ruleset (with the default one for fallback), if it exist.
@@ -117,7 +124,7 @@ impl OutboundHandler {
         name_resolver: NameResolver,
         allowed_federation_domains: BTreeMap<String, String>,
         allowed_client_domains: BTreeMap<String, String>,
-        allowed_non_matrix_regexes: Vec<String>,
+        non_matrix_endpoints: Vec<EndpointConfig>,
         server_rulesets: BTreeMap<String, CompiledRuleset>,
         reject_all_by_default: bool,
     ) -> Result<Self, Whatever> {
@@ -125,17 +132,15 @@ impl OutboundHandler {
             HashSet::from_iter(allowed_federation_domains.values().cloned());
         allowed_server_names.extend(allowed_client_domains.values().cloned());
 
-        let allowed_non_matrix_regexes = allowed_non_matrix_regexes
-            .iter()
-            .map(|regex| Regex::new(regex).whatever_context("Error parsing non matrix regex"))
-            .collect::<Result<Vec<Regex>, Whatever>>()?;
+        let non_matrix_endpoints = build_non_matrix_endpoint_routers(&non_matrix_endpoints)
+            .whatever_context("Failed to build non-matrix endpoints")?;
 
         Ok(Self {
             name_resolver,
             allowed_server_names,
             allowed_federation_domains: allowed_federation_domains.keys().cloned().collect(),
             allowed_client_domains: allowed_client_domains.keys().cloned().collect(),
-            allowed_non_matrix_regexes,
+            non_matrix_endpoints,
             server_rulesets,
             reject_all_by_default,
         })

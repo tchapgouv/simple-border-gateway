@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::net::SocketAddr;
 
 use bytes::Bytes;
-use http::{Method, request::Parts, uri::Scheme};
+use http::{Method, request::Parts};
 use http_body_util::{BodyExt, Limited};
 use log::{Level, log};
 use matchit::Router;
@@ -216,6 +216,31 @@ fn validate_path(path: &str) -> Result<(), Whatever> {
     Ok(())
 }
 
+/// Convert a single endpoint config into a runtime endpoint.
+/// Actions default to Reject/Reject since they are expected to be set via override_rules.
+fn endpoint_from_config(e: &EndpointConfig) -> Result<Endpoint, Whatever> {
+    let method = e
+        .method
+        .as_deref()
+        .map(|m| {
+            Method::from_bytes(m.as_bytes())
+                .whatever_context(format!("Invalid method '{}' in endpoint '{}'", m, e.id))
+        })
+        .transpose()?;
+
+    Ok(Endpoint {
+        id: e.id.clone(),
+        path: e.path.clone(),
+        rule: RuntimeRule {
+            method,
+            endpoint_type: e.endpoint_type,
+            auth_type: e.auth_type,
+            inbound_action: Action::Reject,
+            outbound_action: Action::Reject,
+        },
+    })
+}
+
 /// Convert additional endpoint configs into a compiled endpoint router.
 /// Actions default to Reject/Reject since they are expected to be set via override_rules.
 pub fn build_endpoint_router_from_endpoint_configs(
@@ -223,32 +248,39 @@ pub fn build_endpoint_router_from_endpoint_configs(
 ) -> Result<EndpointRouter, Whatever> {
     let endpoints = endpoints
         .iter()
-        .map(|e| {
-            let method = e
-                .method
-                .as_deref()
-                .map(|m| {
-                    Method::from_bytes(m.as_bytes())
-                        .whatever_context(format!("Invalid method '{}' in endpoint '{}'", m, e.id))
-                })
-                .transpose()?;
-
-            Ok(Endpoint {
-                id: e.id.clone(),
-                path: e.path.clone(),
-                rule: RuntimeRule {
-                    method,
-                    endpoint_type: e.endpoint_type,
-                    auth_type: e.auth_type,
-                    inbound_action: Action::Reject,
-                    outbound_action: Action::Reject,
-                },
-            })
-        })
+        .map(endpoint_from_config)
         .collect::<Result<Vec<_>, Whatever>>()?;
 
     EndpointRouter::new(endpoints)
         .whatever_context("Failed to compile additional endpoints into a router")
+}
+
+/// Compile non-matrix endpoints into a map of destination host to endpoint router.
+/// Each endpoint must declare a `domain`; requests are matched against the router of
+/// the corresponding destination host.
+pub fn build_non_matrix_endpoint_routers(
+    endpoints: &[EndpointConfig],
+) -> Result<BTreeMap<String, EndpointRouter>, Whatever> {
+    let mut routers: BTreeMap<String, Vec<Endpoint>> = BTreeMap::new();
+    for config in endpoints {
+        let Some(domain) = config.domain.as_deref() else {
+            snafu::whatever!("Non-matrix endpoint '{}' must declare a domain", config.id);
+        };
+        routers
+            .entry(domain.to_ascii_lowercase())
+            .or_default()
+            .push(endpoint_from_config(config)?);
+    }
+
+    routers
+        .into_iter()
+        .map(|(domain, endpoints)| {
+            let router = EndpointRouter::new(endpoints).whatever_context(format!(
+                "Failed to compile non-matrix endpoints for domain '{domain}'"
+            ))?;
+            Ok((domain, router))
+        })
+        .collect()
 }
 
 /// Compile override rules into a map of endpoint ID → (inbound_action, outbound_action).
@@ -398,24 +430,6 @@ impl RequestContext {
             msg,
         );
     }
-}
-
-#[allow(
-    clippy::unwrap_used,
-    reason = "we only remove default ports from a validated uri so no new untrusted input"
-)]
-pub(crate) fn remove_default_ports_from_uri(uri: http::Uri) -> String {
-    let mut parts = uri.into_parts();
-    if let Some(authority) = parts.authority.clone() {
-        let host = authority.host().to_string();
-        if let Some(port) = authority.port_u16()
-            && (port == 443 && parts.scheme == Some(Scheme::HTTPS)
-                || port == 80 && parts.scheme == Some(Scheme::HTTP))
-        {
-            parts.authority = Some(http::uri::Authority::from_maybe_shared(host).unwrap());
-        }
-    }
-    http::Uri::from_parts(parts).unwrap().to_string()
 }
 
 pub fn read_pem(path_or_content: &str) -> Result<String, Whatever> {
