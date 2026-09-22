@@ -1,73 +1,68 @@
-use http::{Method, Request, Response, StatusCode};
+use http::StatusCode;
 use rand::RngExt;
 use rcgen::{BasicConstraints, CertificateParams, IsCa, KeyPair};
-use reqwest::{Body, Proxy};
-use simple_border_gateway::config::{EndpointConfig, UpstreamProxyConfig};
-use simple_border_gateway::http_gateway::outbound::OutboundGatewayBuilder;
-use simple_border_gateway::http_gateway::{
-    GatewayDirection, GatewayForwardError, GatewayHandler, RequestOrResponse,
+use reqwest::Proxy;
+use simple_border_gateway::cli::Cli;
+use simple_border_gateway::config::{
+    BorderGatewayConfig, EndpointConfig, ExternalHomeserverConfig, OutboundProxyConfig,
+    OverrideRuleConfig, RulesetConfig, UpstreamProxyConfig,
 };
-use simple_border_gateway::matrix::spec::{Action, AuthType, EndpointType};
-use simple_border_gateway::matrix::util::NameResolver;
-use simple_border_gateway::outbound::OutboundHandler;
-use simple_border_gateway::util::{
-    CompiledRuleset, Endpoint, EndpointRouter, create_http_client, crypto_provider,
-    install_crypto_provider,
-};
+use simple_border_gateway::matrix::spec::{AuthType, EndpointType};
+use simple_border_gateway::services::{prepare_services, spawn_services};
+use simple_border_gateway::util::install_crypto_provider;
 use std::collections::BTreeMap;
-use std::future::Future;
-use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::time::Duration;
 
-fn set_req_scheme_and_authority<B>(req: &mut http::Request<B>, scheme: &str, authority: &str) {
-    let parts = req.uri().clone().into_parts();
-    let mut builder = http::uri::Builder::new()
-        .scheme(scheme)
-        .authority(authority);
-    if let Some(path_and_query) = parts.path_and_query {
-        builder = builder.path_and_query(path_and_query);
-    }
-    *req.uri_mut() = builder.build().unwrap();
-}
-
-#[derive(Clone)]
-struct HandlerWithMockServer {
-    original_handler: OutboundHandler,
-    mock_server_authority: String,
-}
-
-impl GatewayHandler for HandlerWithMockServer {
-    async fn handle_request(
-        &self,
-        req: Request<Body>,
-        _direction: GatewayDirection,
-        _client_addr: SocketAddr,
-    ) -> RequestOrResponse {
-        let req = self
-            .original_handler
-            .handle_request(req, _direction, _client_addr)
-            .await;
-        if let RequestOrResponse::Request(mut req) = req {
-            set_req_scheme_and_authority(&mut req, "http", &self.mock_server_authority);
-            req.into()
-        } else {
-            req
+/// Wait until the gateway accepts connections on the given port.
+async fn wait_for_gateway(port: u16) {
+    for _ in 0..200 {
+        if tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .is_ok()
+        {
+            return;
         }
+        tokio::time::sleep(Duration::from_millis(10)).await;
     }
+    panic!("gateway did not start listening on port {port}");
+}
 
-    fn handle_response(
-        &self,
-        resp: Response<Body>,
-        _direction: GatewayDirection,
-    ) -> impl Future<Output = Response<Body>> + Send {
-        self.original_handler.handle_response(resp, _direction)
-    }
-
-    fn handle_error(
-        &self,
-        err: GatewayForwardError,
-        _direction: GatewayDirection,
-    ) -> impl Future<Output = Response<Body>> + Send {
-        self.original_handler.handle_error(err, _direction)
+/// Minimal ruleset for the tests: adds a custom endpoint and overrides the actions of some default
+/// endpoints.
+fn custom_ruleset() -> RulesetConfig {
+    RulesetConfig {
+        name: "custom".to_string(),
+        additional_endpoints: vec![EndpointConfig {
+            id: "well_known_element_call".to_string(),
+            path: "/.well-known/matrix/element_call".to_string(),
+            method: Some("GET".to_string()),
+            auth_type: AuthType::Unauthenticated,
+            endpoint_type: EndpointType::WellKnown,
+            domain: None,
+        }],
+        override_rules: vec![
+            OverrideRuleConfig {
+                endpoint: "well_known_element_call".to_string(),
+                inbound_action: Some("allow".to_string()),
+                outbound_action: Some("allow".to_string()),
+            },
+            OverrideRuleConfig {
+                endpoint: "query_profile".to_string(),
+                inbound_action: Some("allow".to_string()),
+                outbound_action: Some("allow".to_string()),
+            },
+            OverrideRuleConfig {
+                endpoint: "3pid_onbind".to_string(),
+                inbound_action: Some("reject".to_string()),
+                outbound_action: Some("reject".to_string()),
+            },
+            OverrideRuleConfig {
+                endpoint: "legacy_media".to_string(),
+                inbound_action: Some("allow".to_string()),
+                outbound_action: Some("allow".to_string()),
+            },
+        ],
     }
 }
 
@@ -85,92 +80,66 @@ async fn setup_mock_gateway(
 
     let mock_server = httpmock::MockServer::start();
 
-    let original_handler = OutboundHandler::new(
-        NameResolver::new(BTreeMap::from([
-            (
-                "federation.target.org".to_string(),
-                "target.org".to_string(),
-            ),
-            ("matrix.target.org".to_string(), "target.org".to_string()),
-        ])),
-        BTreeMap::from([(
-            "federation.target.org".to_string(),
-            "target.org".to_string(),
-        )]),
-        BTreeMap::from([("matrix.target.org".to_string(), "target.org".to_string())]),
-        vec![EndpointConfig {
-            id: "webpush_mozilla".to_string(),
-            domain: Some("updates.push.services.mozilla.com".to_string()),
-            path: "{*anything}".to_string(),
-            method: None,
-            auth_type: AuthType::Unauthenticated,
-            endpoint_type: EndpointType::Federation,
-        }],
-        BTreeMap::from([(
-            "target.org".to_string(),
-            CompiledRuleset {
-                additional_endpoints: EndpointRouter::new(vec![
-                    Endpoint::new(
-                        "well_known_element_call",
-                        "/.well-known/matrix/element_call",
-                        Some(Method::GET),
-                        AuthType::Unauthenticated,
-                        EndpointType::WellKnown,
-                        Action::Allow,
-                        Action::Allow,
-                    )
-                    .expect("Invalid endpoint definition"),
-                ])
-                .expect("Invalid endpoint router"),
-                action_overrides: BTreeMap::from([
-                    ("query_profile".to_string(), (Action::Allow, Action::Allow)),
-                    ("3pid_onbind".to_string(), (Action::Reject, Action::Reject)),
-                    ("legacy_media".to_string(), (Action::Allow, Action::Allow)),
-                ]),
-            },
-        )]),
-        reject_all_by_default,
-    )
-    .expect("Failed to create outbound handler");
-
-    let handler = HandlerWithMockServer {
-        original_handler,
-        mock_server_authority: format!("localhost:{}", mock_server.port()),
-    };
+    // The mock server's authority is used as the homeserver name, the federation domain and the
+    // client domain. Requests are sent as plain HTTP so the outbound proxy forwards them straight
+    // to the mock server, without any authority rewriting.
+    let authority = mock_server.address().to_string();
 
     let ca_key_pair = KeyPair::generate().unwrap();
     let mut ca_params = CertificateParams::default();
     ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
     let ca_cert = ca_params.self_signed(&ca_key_pair).unwrap();
 
-    let port = rand::rng().random_range(1024..65535);
+    let port: u16 = rand::rng().random_range(1024..65535);
 
-    let ca_cert_pem = ca_cert.pem();
+    let config = BorderGatewayConfig {
+        internal_homeservers: vec![],
+        external_homeservers: vec![ExternalHomeserverConfig {
+            server_name: authority.clone(),
+            federation_domain: authority.clone(),
+            client_domain: authority.clone(),
+            verify_keys: BTreeMap::new(),
+            ruleset: Some("custom".to_string()),
+        }],
+        inbound_proxy: None,
+        outbound_proxy: Some(OutboundProxyConfig {
+            listen_address: format!("127.0.0.1:{port}"),
+            additional_root_certs: vec![],
+            upstream_proxy: upstream_proxy_config,
+            // The CA is still parsed and the RcgenAuthority is still built when the service is
+            // spawned; the requests themselves are plain HTTP and no longer exercise the TLS
+            // interception handshake.
+            ca_priv_key: ca_key_pair.serialize_pem(),
+            ca_cert: ca_cert.pem(),
+            hazmat_non_matrix_endpoints: vec![EndpointConfig {
+                id: "webpush_mozilla".to_string(),
+                // Reuse the mock server's authority so the outbound proxy forwards these requests
+                // straight to the mock server. The path is restricted to /wpush/... so the
+                // catch-all does not shadow the Matrix endpoints served by the same mock server.
+                domain: Some(authority.clone()),
+                path: "/wpush/{*anything}".to_string(),
+                method: None,
+                auth_type: AuthType::Unauthenticated,
+                endpoint_type: EndpointType::Federation,
+            }],
+        }),
+        rulesets: vec![custom_ruleset()],
+    };
 
-    let mut gateway_builder = OutboundGatewayBuilder::new(
-        format!("127.0.0.1:{}", port).parse().unwrap(),
-        ca_key_pair.serialize_pem(),
-        ca_cert.pem(),
-        crypto_provider::default_provider(),
-        handler,
-    )
-    .unwrap();
+    let cli = Cli {
+        log_level: None,
+        inbound_only: false,
+        outbound_only: false,
+        config_file: PathBuf::from("config.toml"),
+        reject_all_by_default,
+    };
 
-    if let Some(upstream_proxy_config) = upstream_proxy_config {
-        gateway_builder = gateway_builder
-            .with_http_client(create_http_client(vec![], Some(upstream_proxy_config)).unwrap());
-    }
-
-    tokio::spawn(async move {
-        gateway_builder
-            .build_and_run()
-            .await
-            .expect("Failed to create outbound proxy");
-    });
+    let services = prepare_services(config, &cli).expect("Failed to prepare outbound service");
+    spawn_services(services);
+    wait_for_gateway(port).await;
 
     let proxied_client = reqwest::Client::builder()
-        .proxy(Proxy::all(format!("http://localhost:{}", port)).unwrap())
-        .add_root_certificate(reqwest::Certificate::from_pem(ca_cert_pem.as_bytes()).unwrap())
+        .proxy(Proxy::all(format!("http://127.0.0.1:{port}")).unwrap())
         .build()
         .unwrap();
 
@@ -179,9 +148,9 @@ async fn setup_mock_gateway(
 
 #[tokio::test]
 async fn test_invalid_endpoint() {
-    let (_, client) = setup_mock_gateway(None, false).await;
+    let (mock_server, client) = setup_mock_gateway(None, false).await;
     let response = client
-        .get("https://federation.target.org/_matrix/federation/v1/invalid")
+        .get(mock_server.url("/_matrix/federation/v1/invalid"))
         .send()
         .await
         .unwrap();
@@ -191,10 +160,10 @@ async fn test_invalid_endpoint() {
 
 #[tokio::test]
 async fn test_valid_federation_request_but_unknown_endpoint() {
-    let (_, client) = setup_mock_gateway(None, false).await;
+    let (mock_server, client) = setup_mock_gateway(None, false).await;
 
     let response = client
-        .get("https://federation.target.org/_matrix/federation/v1/query/avatar")
+        .get(mock_server.url("/_matrix/federation/v1/query/avatar"))
         .send()
         .await
         .unwrap();
@@ -204,12 +173,12 @@ async fn test_valid_federation_request_but_unknown_endpoint() {
 
 #[tokio::test]
 async fn test_valid_federation_request_from_rejected_whitelist() {
-    let (_, client) = setup_mock_gateway(None, true).await;
+    let (mock_server, client) = setup_mock_gateway(None, true).await;
 
     // This endpoint is missing from the override ruleset, but it's part of the default ruleset
     // This should be rejected as the default ruleset is in reject all mode, with no override on this endpoint.
     let response = client
-        .get("https://federation.target.org/_matrix/federation/v1/query/directory")
+        .get(mock_server.url("/_matrix/federation/v1/query/directory"))
         .send()
         .await
         .unwrap();
@@ -229,7 +198,7 @@ async fn test_custom_endpoint() {
 
     // Should be accepted as it's an allowed custom endpoint
     let response = client
-        .get("https://target.org/.well-known/matrix/element_call")
+        .get(mock_server.url("/.well-known/matrix/element_call"))
         .send()
         .await
         .unwrap();
@@ -250,7 +219,7 @@ async fn test_valid_federation_request_from_rejected_whitelist_override() {
 
     // Despite the default ruleset being in reject all mode, this endpoint is explicitly allowed in the override ruleset, so it should be accepted.
     let response = client
-        .get("https://federation.target.org/_matrix/federation/v1/query/profile")
+        .get(mock_server.url("/_matrix/federation/v1/query/profile"))
         .send()
         .await
         .unwrap();
@@ -272,7 +241,7 @@ async fn test_valid_federation_request_from_default_whitelist() {
     // This endpoint is missing from the override ruleset, but it's part of the default ruleset
     // This SHOULD be accepted.
     let response = client
-        .get("https://federation.target.org/_matrix/federation/v1/query/directory")
+        .get(mock_server.url("/_matrix/federation/v1/query/directory"))
         .send()
         .await
         .unwrap();
@@ -283,10 +252,10 @@ async fn test_valid_federation_request_from_default_whitelist() {
 
 #[tokio::test]
 async fn test_valid_federation_request_but_rejected_endpoint() {
-    let (_, client) = setup_mock_gateway(None, false).await;
+    let (mock_server, client) = setup_mock_gateway(None, false).await;
 
     let response = client
-        .put("https://federation.target.org/_matrix/federation/v1/3pid/onbind")
+        .put(mock_server.url("/_matrix/federation/v1/3pid/onbind"))
         .send()
         .await
         .unwrap();
@@ -305,7 +274,7 @@ async fn test_valid_federation_request() {
     });
 
     let response = client
-        .get("https://federation.target.org/_matrix/federation/v1/query/profile")
+        .get(mock_server.url("/_matrix/federation/v1/query/profile"))
         .send()
         .await
         .unwrap();
@@ -316,10 +285,10 @@ async fn test_valid_federation_request() {
 
 #[tokio::test]
 async fn test_unauthorized_federation_request() {
-    let (_, client) = setup_mock_gateway(None, false).await;
+    let (_mock_server, client) = setup_mock_gateway(None, false).await;
 
     let response = client
-        .get("https://federation.unauthorized.org/_matrix/federation/v1/query/profile")
+        .get("http://federation.unauthorized.org/_matrix/federation/v1/query/profile")
         .send()
         .await
         .unwrap();
@@ -338,7 +307,7 @@ async fn test_valid_legacy_media_request() {
     });
 
     let response = client
-        .get("https://matrix.target.org/_matrix/media/v3/download/test.org/mediaId")
+        .get(mock_server.url("/_matrix/media/v3/download/test.org/mediaId"))
         .send()
         .await
         .unwrap();
@@ -349,10 +318,10 @@ async fn test_valid_legacy_media_request() {
 
 #[tokio::test]
 async fn test_unauthorized_legacy_media_request() {
-    let (_, client) = setup_mock_gateway(None, false).await;
+    let (_mock_server, client) = setup_mock_gateway(None, false).await;
 
     let response = client
-        .get("https://matrix.unauthorized.org/_matrix/media/v3/download/test.org/mediaId")
+        .get("http://matrix.unauthorized.org/_matrix/media/v3/download/test.org/mediaId")
         .send()
         .await
         .unwrap();
@@ -370,7 +339,7 @@ async fn test_valid_well_known_request() {
     });
 
     let response = client
-        .get("https://target.org/.well-known/matrix/server")
+        .get(mock_server.url("/.well-known/matrix/server"))
         .send()
         .await
         .unwrap();
@@ -381,10 +350,10 @@ async fn test_valid_well_known_request() {
 
 #[tokio::test]
 async fn test_unauthorized_well_known_request() {
-    let (_, client) = setup_mock_gateway(None, false).await;
+    let (_mock_server, client) = setup_mock_gateway(None, false).await;
 
     let response = client
-        .get("https://unauthorized.org/.well-known/matrix/server")
+        .get("http://unauthorized.org/.well-known/matrix/server")
         .send()
         .await
         .unwrap();
@@ -401,10 +370,10 @@ async fn test_allowed_non_matrix_endpoint() {
         then.status(200);
     });
 
-    // updates.push.services.mozilla.com is not a known external homeserver,
-    // but this endpoint is explicitly allowed for that domain.
+    // /wpush/v1/id is not a Matrix endpoint, but it is declared as a non-matrix endpoint for the
+    // mock server's authority, so it is allowed and forwarded to the mock server.
     let response = client
-        .get("https://updates.push.services.mozilla.com/wpush/v1/id")
+        .get(mock_server.url("/wpush/v1/id"))
         .send()
         .await
         .unwrap();
@@ -419,7 +388,7 @@ async fn test_non_matrix_endpoint_rejected_on_other_domain() {
 
     // Same path, but a different destination domain than the one declared for the endpoint.
     let response = client
-        .get("https://not-mozilla.org/wpush/v1/id")
+        .get("http://not-mozilla.org/wpush/v1/id")
         .send()
         .await
         .unwrap();
@@ -437,7 +406,7 @@ async fn test_upstream_proxy() {
         password: Some("proxypwd".to_string()),
     };
 
-    let (_, client) = setup_mock_gateway(Some(upstream_proxy), false).await;
+    let (mock_server, client) = setup_mock_gateway(Some(upstream_proxy), false).await;
 
     let mock = proxy_mock_server.mock(|when, then| {
         when.method("GET")
@@ -449,7 +418,7 @@ async fn test_upstream_proxy() {
     });
 
     let response = client
-        .get("https://federation.target.org/_matrix/federation/v1/query/profile")
+        .get(mock_server.url("/_matrix/federation/v1/query/profile"))
         .send()
         .await
         .unwrap();
