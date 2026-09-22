@@ -185,8 +185,5 @@ async fn forward_request<H: GatewayHandler>(
 
 fn convert_request(req: http::Request<axum::body::Body>) -> http::Request<reqwest::Body> {
     let (parts, body) = req.into_parts();
-    http::Request::from_parts(
-        parts,
-        reqwest::Body::wrap_stream(body.into_data_stream()),
-    )
+    http::Request::from_parts(parts, reqwest::Body::wrap_stream(body.into_data_stream()))
 }
