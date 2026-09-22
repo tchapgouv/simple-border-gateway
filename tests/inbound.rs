@@ -1,60 +1,88 @@
-use http::{Method, StatusCode};
+use http::StatusCode;
 use rand::RngExt;
 use reqwest::Body;
 use ruma::CanonicalJsonValue;
 use ruma::serde::Base64;
 use ruma::signatures::{Ed25519KeyPair, sign_json};
-use simple_border_gateway::http_gateway::inbound::InboundGatewayBuilder;
-use simple_border_gateway::inbound::InboundHandler;
-use simple_border_gateway::matrix::spec::{Action, AuthType, EndpointType};
-use simple_border_gateway::matrix::util::NameResolver;
-use simple_border_gateway::util::{
-    CompiledRuleset, Endpoint, EndpointRouter, install_crypto_provider,
+use simple_border_gateway::cli::Cli;
+use simple_border_gateway::config::{
+    BorderGatewayConfig, EndpointConfig, ExternalHomeserverConfig, InboundProxyConfig,
+    InternalHomeserverConfig, OverrideRuleConfig, RulesetConfig,
 };
+use simple_border_gateway::matrix::spec::{AuthType, EndpointType};
+use simple_border_gateway::services::{prepare_services, spawn_services};
+use simple_border_gateway::util::install_crypto_provider;
 use std::collections::BTreeMap;
+use std::path::PathBuf;
+use std::time::Duration;
 
-fn no_overridden_ruleset() -> CompiledRuleset {
-    CompiledRuleset::default()
+/// Build a client that ignores any ambient proxy configuration (e.g. HTTP_PROXY), so requests
+/// reach the local gateway directly.
+fn test_client() -> reqwest::Client {
+    reqwest::Client::builder().no_proxy().build().unwrap()
 }
 
-/// Minimal ruleset for the tests: overrides actions on some default endpoints
-fn test_ruleset() -> CompiledRuleset {
-    CompiledRuleset {
-        additional_endpoints: EndpointRouter::new(vec![
-            Endpoint::new(
-                "well_known_element_call",
-                "/.well-known/matrix/element_call",
-                Some(Method::GET),
-                AuthType::Unauthenticated,
-                EndpointType::WellKnown,
-                Action::Allow,
-                Action::Allow,
-            )
-            .expect("Invalid endpoint definition"),
-        ])
-        .expect("Invalid endpoint router"),
-        action_overrides: BTreeMap::from([
-            (
-                "well_known_server".to_string(),
-                (Action::Reject, Action::Reject),
-            ),
-            ("query_profile".to_string(), (Action::Allow, Action::Allow)),
-            (
-                "key_v2_query_post".to_string(),
-                (Action::Reject, Action::Reject),
-            ),
-            (
-                "send_transaction".to_string(),
-                (Action::Allow, Action::Allow),
-            ),
-        ]),
+/// Wait until the gateway accepts connections on the given port.
+async fn wait_for_gateway(port: u16) {
+    for _ in 0..200 {
+        if tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .is_ok()
+        {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("gateway did not start listening on port {port}");
+}
+
+/// Minimal ruleset for the tests: adds a custom endpoint and overrides the actions of some default
+/// endpoints.
+fn custom_ruleset() -> RulesetConfig {
+    RulesetConfig {
+        name: "custom".to_string(),
+        additional_endpoints: vec![EndpointConfig {
+            id: "well_known_element_call".to_string(),
+            path: "/.well-known/matrix/element_call".to_string(),
+            method: Some("GET".to_string()),
+            auth_type: AuthType::Unauthenticated,
+            endpoint_type: EndpointType::WellKnown,
+            domain: None,
+        }],
+        override_rules: vec![
+            OverrideRuleConfig {
+                endpoint: "well_known_element_call".to_string(),
+                inbound_action: Some("allow".to_string()),
+                outbound_action: Some("allow".to_string()),
+            },
+            OverrideRuleConfig {
+                endpoint: "well_known_server".to_string(),
+                inbound_action: Some("reject".to_string()),
+                outbound_action: Some("reject".to_string()),
+            },
+            OverrideRuleConfig {
+                endpoint: "query_profile".to_string(),
+                inbound_action: Some("allow".to_string()),
+                outbound_action: Some("allow".to_string()),
+            },
+            OverrideRuleConfig {
+                endpoint: "key_v2_query_post".to_string(),
+                inbound_action: Some("reject".to_string()),
+                outbound_action: Some("reject".to_string()),
+            },
+            OverrideRuleConfig {
+                endpoint: "send_transaction".to_string(),
+                inbound_action: Some("allow".to_string()),
+                outbound_action: Some("allow".to_string()),
+            },
+        ],
     }
 }
 
 async fn setup_mock_gateway(
     no_overridden_rules: bool,
     reject_all_by_default: bool,
-) -> (httpmock::MockServer, u32, Ed25519KeyPair) {
+) -> (httpmock::MockServer, u16, Ed25519KeyPair) {
     // env_logger::builder()
     //     .filter_level(log::LevelFilter::Debug)
     //     .target(env_logger::Target::Stdout)
@@ -67,47 +95,64 @@ async fn setup_mock_gateway(
 
     let public_key = keypair.public_key().to_vec();
     let key_id = format!("ed25519:{}", keypair.version());
+    let verify_key: Base64 = Base64::new(public_key);
 
     let mock_server = httpmock::MockServer::start();
 
-    let mut target_base_urls = BTreeMap::new();
-    target_base_urls.insert("target.org".to_string(), mock_server.base_url());
-
-    let mut public_key_map: BTreeMap<String, BTreeMap<String, Base64>> = BTreeMap::new();
-    let mut mock_server_key: BTreeMap<String, Base64> = BTreeMap::new();
-    mock_server_key.insert(key_id.clone(), Base64::new(public_key.to_vec()));
-    public_key_map.insert("origin.org".to_string(), mock_server_key);
-
-    let ruleset = if no_overridden_rules {
-        no_overridden_ruleset()
+    // An empty ruleset list means every homeserver falls back to the default ruleset.
+    let rulesets = if no_overridden_rules {
+        vec![]
     } else {
-        test_ruleset()
+        vec![custom_ruleset()]
+    };
+    let ruleset_name = rulesets.first().map(|ruleset| ruleset.name.clone());
+
+    let mut external_homeservers = vec![ExternalHomeserverConfig {
+        server_name: "origin.org".to_string(),
+        federation_domain: "federation.origin.org".to_string(),
+        client_domain: "client.origin.org".to_string(),
+        verify_keys: BTreeMap::from([(key_id.clone(), verify_key.encode())]),
+        ruleset: ruleset_name.clone(),
+    }];
+    // Requests without an X-Matrix auth header get their origin server from a reverse lookup of
+    // the client IP, which resolves to "localhost" for loopback requests. Attaching the ruleset
+    // here exercises the "unknown server but known ruleset" path for those requests.
+    external_homeservers.push(ExternalHomeserverConfig {
+        server_name: "localhost".to_string(),
+        federation_domain: "federation.localhost".to_string(),
+        client_domain: "client.localhost".to_string(),
+        verify_keys: BTreeMap::new(),
+        ruleset: ruleset_name,
+    });
+
+    let port: u16 = rand::rng().random_range(1024..65535);
+
+    let config = BorderGatewayConfig {
+        internal_homeservers: vec![InternalHomeserverConfig {
+            server_name: "target.org".to_string(),
+            federation_domain: "target.org".to_string(),
+            target_base_url: mock_server.base_url(),
+        }],
+        external_homeservers,
+        inbound_proxy: Some(InboundProxyConfig {
+            listen_address: format!("127.0.0.1:{port}"),
+            additional_root_certs: vec![],
+        }),
+        outbound_proxy: None,
+        rulesets,
     };
 
-    let handler = InboundHandler::new(
-        NameResolver::new(BTreeMap::new()),
-        public_key_map,
-        // Localhost is considered as a failure case for the name resolution
-        // It's used here mainly to test the not found case for the server ruleset, but also to test the fallback to the Authorization header parsing
-        BTreeMap::from([
-            ("localhost".to_string(), ruleset.clone()),
-            ("origin.org".to_string(), ruleset),
-        ]),
+    let cli = Cli {
+        log_level: None,
+        inbound_only: false,
+        outbound_only: false,
+        config_file: PathBuf::from("config.toml"),
         reject_all_by_default,
-    );
+    };
 
-    let port = rand::rng().random_range(1024..65535);
-
-    tokio::spawn(async move {
-        InboundGatewayBuilder::new(
-            format!("127.0.0.1:{}", port).parse().unwrap(),
-            target_base_urls,
-            handler,
-        )
-        .build_and_run()
-        .await
-        .expect("Failed to create inbound proxy");
-    });
+    let services = prepare_services(config, &cli).expect("Failed to prepare inbound service");
+    spawn_services(services);
+    wait_for_gateway(port).await;
 
     (mock_server, port, keypair)
 }
@@ -122,7 +167,7 @@ async fn setup_mock_gateway(
 #[tokio::test]
 async fn test_invalid_endpoint() {
     let (_, port, _) = setup_mock_gateway(false, false).await;
-    let response = reqwest::Client::new()
+    let response = test_client()
         .get(format!(
             "http://localhost:{}/_matrix/federation/v1/invalid",
             port
@@ -200,7 +245,7 @@ async fn test_custom_endpoint() {
         then.status(200);
     });
 
-    let response = reqwest::Client::new()
+    let response = test_client()
         .get(format!(
             "http://localhost:{}/.well-known/matrix/element_call",
             port
@@ -223,7 +268,7 @@ async fn test_unauthenticated_endpoint() {
         then.status(200);
     });
 
-    let response = reqwest::Client::new()
+    let response = test_client()
         .get(format!(
             "http://localhost:{}/.well-known/matrix/server",
             port
@@ -241,7 +286,7 @@ async fn test_unauthenticated_endpoint() {
 async fn test_unauthenticated_endpoint_can_be_rejected_by_ruleset() {
     let (_, port, _) = setup_mock_gateway(false, false).await;
 
-    let response = reqwest::Client::new()
+    let response = test_client()
         .get(format!(
             "http://localhost:{}/.well-known/matrix/server",
             port
@@ -258,7 +303,7 @@ async fn test_unauthenticated_endpoint_can_be_rejected_by_ruleset() {
 async fn test_reject_all_applies_to_unauthenticated_default_endpoint() {
     let (_, port, _) = setup_mock_gateway(true, true).await;
 
-    let response = reqwest::Client::new()
+    let response = test_client()
         .get(format!(
             "http://localhost:{}/.well-known/matrix/server",
             port
@@ -348,7 +393,7 @@ async fn test_authenticated_endpoint_with_override_ruleset() {
         origin_name, destination_name, key_id, signature
     );
 
-    let response = reqwest::Client::new()
+    let response = test_client()
         .request(
             method.parse().unwrap(),
             format!("http://localhost:{}{}", port, path),
@@ -390,7 +435,7 @@ async fn test_authenticated_endpoint_with_rejected_default_ruleset() {
         origin_name, destination_name, key_id, signature
     );
 
-    let response = reqwest::Client::new()
+    let response = test_client()
         .request(
             method.parse().unwrap(),
             format!("http://localhost:{}{}", port, path),
@@ -435,7 +480,7 @@ async fn test_authenticated_endpoint_with_valid_request() {
         origin_name, destination_name, key_id, signature
     );
 
-    let response = reqwest::Client::new()
+    let response = test_client()
         .request(
             method.parse().unwrap(),
             format!("http://localhost:{}{}", port, path),
@@ -479,7 +524,7 @@ async fn test_authenticated_endpoint_with_mismatched_destination() {
         origin_name, destination_name, key_id, signature
     );
 
-    let response = reqwest::Client::new()
+    let response = test_client()
         .request(
             method.parse().unwrap(),
             format!("http://localhost:{}{}", port, path),
@@ -511,7 +556,7 @@ async fn test_authenticated_endpoint_without_destination() {
         origin_name, key_id, signature
     );
 
-    let response = reqwest::Client::new()
+    let response = test_client()
         .request(
             method.parse().unwrap(),
             format!("http://localhost:{}{}", port, path),
@@ -556,7 +601,7 @@ async fn test_authenticated_endpoint_with_default_ruleset() {
         origin_name, destination_name, key_id, signature
     );
 
-    let response = reqwest::Client::new()
+    let response = test_client()
         .request(
             method.parse().unwrap(),
             format!("http://localhost:{}{}", port, path),
@@ -597,7 +642,7 @@ async fn test_authenticated_endpoint_with_unauthorized_endpoint() {
         origin_name, destination_name, key_id, signature
     );
 
-    let response = reqwest::Client::new()
+    let response = test_client()
         .request(
             method.parse().unwrap(),
             format!("http://localhost:{}{}", port, path),
@@ -637,7 +682,7 @@ async fn test_authenticated_endpoint_from_unauthorized_server() {
         origin_name, destination_name, key_id, signature
     );
 
-    let response = reqwest::Client::new()
+    let response = test_client()
         .request(
             method.parse().unwrap(),
             format!("http://localhost:{}{}", port, path),
@@ -678,7 +723,7 @@ async fn test_authenticated_endpoint_with_invalid_signature() {
         origin_name, destination_name, key_id, signature
     );
 
-    let response = reqwest::Client::new()
+    let response = test_client()
         .request(
             method.parse().unwrap(),
             format!("http://localhost:{}{}", port, path),
@@ -698,7 +743,7 @@ async fn test_authenticated_endpoint_with_invalid_signature() {
 async fn test_authenticated_endpoint_with_invalid_auth_header() {
     let (_, port, _) = setup_mock_gateway(false, false).await;
 
-    let response = reqwest::Client::new()
+    let response = test_client()
         .get(format!(
             "http://localhost:{}/_matrix/federation/v1/query/profile",
             port
@@ -718,7 +763,7 @@ async fn test_authenticated_endpoint_with_invalid_auth_header() {
 async fn test_authenticated_endpoint_without_auth_header() {
     let (_, port, _) = setup_mock_gateway(false, false).await;
 
-    let response = reqwest::Client::new()
+    let response = test_client()
         .get(format!(
             "http://localhost:{}/_matrix/federation/v1/query/profile",
             port
@@ -757,7 +802,7 @@ async fn test_authenticated_endpoint_with_non_utf8_body() {
         origin_name, destination_name, key_id, signature
     );
 
-    let response = reqwest::Client::new()
+    let response = test_client()
         .request(
             method.parse().unwrap(),
             format!("http://localhost:{}{}", port, path),
