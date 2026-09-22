@@ -223,7 +223,7 @@ fn endpoint_from_config(e: &EndpointConfig) -> Result<Endpoint, Whatever> {
         .method
         .as_deref()
         .map(|m| {
-            Method::from_bytes(m.as_bytes())
+            Method::from_bytes(&m.as_bytes().to_ascii_uppercase())
                 .whatever_context(format!("Invalid method '{}' in endpoint '{}'", m, e.id))
         })
         .transpose()?;
