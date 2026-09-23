@@ -8,6 +8,10 @@ This software aims to help opening a private federation hosted on a segmented ne
 
 Verify that the request path and verb is valid per the Matrix federation spec, else forbid it.
 
+Behave like a proper reverse proxy on the wire: hop-by-hop headers are stripped, the original request is described through
+`X-Forwarded-For`/`X-Forwarded-Host`/`X-Forwarded-Proto` and `Forwarded`, the `Host` header is retargeted to the destination,
+and the gateway advertises itself in a `Via` header.
+
 ### Inbound traffic
 
 Incoming authenticated requests are verified against a list of allowed homeservers.

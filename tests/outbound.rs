@@ -427,3 +427,27 @@ async fn test_upstream_proxy() {
     assert_eq!(response.status(), StatusCode::OK);
     mock.assert();
 }
+
+#[tokio::test]
+async fn test_proxy_headers_are_added_to_forwarded_request() {
+    let (mock_server, client) = setup_mock_gateway(None, false).await;
+    let authority = mock_server.address().to_string();
+
+    let path = "/_matrix/federation/v1/query/profile";
+    let mock = mock_server.mock(|when, then| {
+        when.method("GET")
+            .path(path)
+            // As a forward proxy, the gateway knows the original scheme from the
+            // request target.
+            .header("x-forwarded-proto", "http")
+            .header("x-forwarded-host", authority.clone())
+            .header("x-forwarded-for", "127.0.0.1")
+            .header_includes("via", "simple-border-gateway");
+        then.status(200);
+    });
+
+    let response = client.get(mock_server.url(path)).send().await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    mock.assert();
+}
