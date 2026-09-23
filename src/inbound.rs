@@ -9,7 +9,7 @@ use crate::{
         util::{NameResolver, create_matrix_response},
         xmatrix::verify_signature,
     },
-    util::{CompiledRuleset, RequestContext, resolve_endpoint, to_bytes},
+    util::{BodyReadError, CompiledRuleset, RequestContext, resolve_endpoint, to_bytes},
 };
 use http::{Request, StatusCode};
 use log::Level;
@@ -118,9 +118,19 @@ impl InboundHandler {
             return create_matrix_response(StatusCode::FORBIDDEN, "M_FORBIDDEN").into();
         }
 
-        let Some(body) = to_bytes(body, 1024 * 1024 * 10).await else {
-            ctx.log(Level::Warn, "413 - req body too large");
-            return create_status_response(StatusCode::PAYLOAD_TOO_LARGE).into();
+        let body = match to_bytes(body, 1024 * 1024 * 10).await {
+            Ok(body) => body,
+            Err(BodyReadError::TooLarge) => {
+                ctx.log(Level::Warn, "413 - req body too large");
+                return create_status_response(StatusCode::PAYLOAD_TOO_LARGE).into();
+            }
+            Err(e) => {
+                ctx.log(
+                    Level::Warn,
+                    &format!("400 - bad request, failed to read req body: {e}"),
+                );
+                return create_status_response(StatusCode::BAD_REQUEST).into();
+            }
         };
 
         // Only borrow the body as a `&str` for verification, so the original `Bytes`
