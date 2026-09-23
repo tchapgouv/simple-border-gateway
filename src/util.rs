@@ -1,12 +1,12 @@
-use std::collections::BTreeMap;
 use std::net::SocketAddr;
+use std::{collections::BTreeMap, time::Duration};
 
 use bytes::Bytes;
 use http::{Method, request::Parts};
 use http_body_util::{BodyExt, Limited};
 use log::{Level, log};
 use matchit::Router;
-use reqwest::Body;
+use reqwest::{Body, redirect::Policy};
 use ruma::api::federation::authentication::XMatrix;
 use snafu::{ResultExt as _, Whatever};
 use tracing::debug;
@@ -445,7 +445,13 @@ pub fn create_http_client(
     additional_root_certs: Vec<String>,
     upstream_proxy_config: Option<UpstreamProxyConfig>,
 ) -> Result<reqwest::Client, Whatever> {
-    let mut builder = reqwest::Client::builder();
+    let mut builder = reqwest::Client::builder()
+        // This protects against potentially malicious servers or reverse proxies that
+        // could redirect to malicious content.
+        .redirect(Policy::none())
+        // This avoids hanging indefinitely if the server doesn't respond.
+        // 30mns is a bit long, but state res can be (really) slow.
+        .timeout(Duration::from_mins(30));
     if let Some(upstream_proxy_config) = upstream_proxy_config {
         let mut proxy_builder = reqwest::Proxy::all(upstream_proxy_config.url)
             .whatever_context("Failed to create reqwest proxy config")?;
