@@ -9,7 +9,7 @@ use http::StatusCode;
 use serde_json::{Value, json};
 use ttl_cache::TtlCache;
 
-use crate::http_gateway::util::{create_response, remove_default_https_port};
+use crate::http_gateway::util::{create_response, remove_default_http_https_port};
 
 #[derive(Clone)]
 pub struct NameResolver {
@@ -26,7 +26,7 @@ impl NameResolver {
     }
 
     pub fn domain_to_server_name(&self, domain: &str) -> String {
-        let domain = remove_default_https_port(domain);
+        let domain = remove_default_http_https_port(domain);
         self.domain_server_name_map
             .get(domain)
             .unwrap_or(&domain.to_string())
