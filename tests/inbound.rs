@@ -817,3 +817,89 @@ async fn test_authenticated_endpoint_with_non_utf8_body() {
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
+
+/// Send a raw HTTP/1.1 request (bypassing the test client's own header handling) and
+/// return the raw response.
+async fn send_raw_request(port: u16, request: &str) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port))
+        .await
+        .expect("failed to connect to the gateway");
+    stream
+        .write_all(request.as_bytes())
+        .await
+        .expect("failed to send request");
+    let mut response = Vec::new();
+    stream
+        .read_to_end(&mut response)
+        .await
+        .expect("failed to read response");
+    String::from_utf8_lossy(&response).into_owned()
+}
+
+#[tokio::test]
+async fn test_proxy_headers_are_added_to_forwarded_request() {
+    let (mock_server, port, _) = setup_mock_gateway(true, false).await;
+
+    let path = "/.well-known/matrix/server";
+    let mock = mock_server.mock(|when, then| {
+        when.method("GET")
+            .path(path)
+            // The destination authority replaces the received `Host`.
+            .header("host", "target.org")
+            .header("x-forwarded-host", "target.org")
+            .header("x-forwarded-for", "127.0.0.1")
+            .header_includes("via", "simple-border-gateway");
+        then.status(200);
+    });
+
+    let response = test_client()
+        .get(format!("http://localhost:{}{}", port, path))
+        .header("X-Forwarded-Host", "target.org")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    mock.assert();
+}
+
+#[tokio::test]
+async fn test_hop_by_hop_headers_are_not_forwarded() {
+    let (mock_server, port, _) = setup_mock_gateway(true, false).await;
+
+    let path = "/.well-known/matrix/server";
+    let mock = mock_server.mock(|when, then| {
+        when.method("GET")
+            .path(path)
+            // Neither the hop-by-hop headers nor the fields named by `Connection` may
+            // reach the internal homeserver.
+            .header_missing("x-hop-by-hop")
+            .header_missing("keep-alive")
+            .header_missing("proxy-authorization")
+            .header_missing("te");
+        then.status(200);
+    });
+
+    // A raw request is used so the test client does not filter these headers itself.
+    let request = format!(
+        "GET {path} HTTP/1.1\r\n\
+         Host: target.org\r\n\
+         X-Forwarded-Host: target.org\r\n\
+         Connection: close, x-hop-by-hop\r\n\
+         X-Hop-By-Hop: secret\r\n\
+         Keep-Alive: timeout=5\r\n\
+         Proxy-Authorization: Basic c2VjcmV0\r\n\
+         TE: trailers\r\n\
+         \r\n"
+    );
+
+    let response = send_raw_request(port, &request).await;
+
+    assert!(
+        response.starts_with("HTTP/1.1 200"),
+        "unexpected response: {response}"
+    );
+    mock.assert();
+}

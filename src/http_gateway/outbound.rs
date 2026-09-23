@@ -8,7 +8,8 @@ use rustls::crypto::CryptoProvider;
 use snafu::{ResultExt, Snafu};
 
 use crate::http_gateway::{
-    GatewayDirection, GatewayForwardError, GatewayHandler, RequestOrResponse, util::shutdown_signal,
+    GatewayDirection, GatewayForwardError, GatewayHandler, RequestOrResponse, headers,
+    util::{remove_default_http_https_port, shutdown_signal},
 };
 
 #[derive(Debug, Snafu)]
@@ -22,6 +23,7 @@ pub enum OutboundGatewayCreateError {
 }
 
 pub struct OutboundGatewayBuilder<H: GatewayHandler> {
+    gateway_name: String,
     listen_address: SocketAddr,
     ca_issuer: Issuer<'static, KeyPair>,
     crypto_provider: CryptoProvider,
@@ -42,6 +44,7 @@ impl<H: GatewayHandler> OutboundGatewayBuilder<H> {
         let ca_issuer = Issuer::from_ca_cert_pem(ca_certificate.as_str(), key_pair)
             .context(ParseCertificateSnafu)?;
         Ok(Self {
+            gateway_name: "http-gateway".to_string(),
             listen_address,
             ca_issuer,
             crypto_provider,
@@ -55,6 +58,11 @@ impl<H: GatewayHandler> OutboundGatewayBuilder<H> {
         self
     }
 
+    pub fn with_gateway_name(mut self, gateway_name: String) -> Self {
+        self.gateway_name = gateway_name;
+        self
+    }
+
     pub async fn build_and_run(self) -> Result<(), OutboundGatewayCreateError> {
         let ca = RcgenAuthority::new(self.ca_issuer, 1_000, self.crypto_provider.clone());
 
@@ -64,7 +72,11 @@ impl<H: GatewayHandler> OutboundGatewayBuilder<H> {
             .with_rustls_connector(self.crypto_provider);
 
         let proxy = builder
-            .with_http_handler(HandlerAdapter::new(self.handler, self.http_client))
+            .with_http_handler(HandlerAdapter::new(
+                self.handler,
+                self.http_client,
+                self.gateway_name.clone(),
+            ))
             .with_graceful_shutdown(shutdown_signal())
             .build()
             .context(ProxySnafu)?;
@@ -76,14 +88,16 @@ impl<H: GatewayHandler> OutboundGatewayBuilder<H> {
 #[derive(Clone)]
 struct HandlerAdapter<H: GatewayHandler> {
     handler: H,
+    gateway_name: String,
     http_client: reqwest::Client,
 }
 
 impl<H: GatewayHandler> HandlerAdapter<H> {
-    pub fn new(handler: H, http_client: reqwest::Client) -> Self {
+    pub fn new(handler: H, http_client: reqwest::Client, gateway_name: String) -> Self {
         Self {
             handler,
             http_client,
+            gateway_name,
         }
     }
 }
@@ -100,6 +114,9 @@ impl<H: GatewayHandler> hudsucker::HttpHandler for HandlerAdapter<H> {
             return req.into();
         }
 
+        // `convert_request` rewrites the version for reqwest, so remember the protocol
+        // the client actually used to report it in `Via`.
+        let received_version = req.version();
         let req = convert_request(req);
 
         let req_or_resp = self
@@ -109,6 +126,12 @@ impl<H: GatewayHandler> hudsucker::HttpHandler for HandlerAdapter<H> {
 
         let resp = match req_or_resp {
             RequestOrResponse::Request(req) => {
+                let req = prepare_outbound_request(
+                    &self.gateway_name,
+                    req,
+                    received_version,
+                    ctx.client_addr,
+                );
                 let req = match reqwest::Request::try_from(req) {
                     Ok(req) => req,
                     Err(e) => {
@@ -145,7 +168,7 @@ impl<H: GatewayHandler> hudsucker::HttpHandler for HandlerAdapter<H> {
             }
             RequestOrResponse::Response(resp) => resp,
         };
-        convert_response_to_hudsucker(resp).into()
+        convert_response_to_hudsucker(&self.gateway_name, resp).into()
     }
 
     async fn handle_response(
@@ -158,7 +181,7 @@ impl<H: GatewayHandler> hudsucker::HttpHandler for HandlerAdapter<H> {
             .handler
             .handle_response(resp, GatewayDirection::Outbound)
             .await;
-        convert_response_to_hudsucker(resp)
+        convert_response_to_hudsucker(&self.gateway_name, resp)
     }
 
     async fn handle_error(
@@ -183,6 +206,7 @@ impl<H: GatewayHandler> HandlerAdapter<H> {
         err: GatewayForwardError,
     ) -> http::Response<hudsucker::Body> {
         convert_response_to_hudsucker(
+            &self.gateway_name,
             self.handler
                 .handle_error(err, GatewayDirection::Outbound)
                 .await,
@@ -200,14 +224,51 @@ fn convert_request(req: http::Request<hudsucker::Body>) -> http::Request<reqwest
     http::Request::from_parts(parts, reqwest::Body::wrap_stream(body.into_data_stream()))
 }
 
+/// Rewrite the headers of a request before it is handed to the origin server.
+///
+/// As a forward proxy, the gateway receives the request target in absolute form, so it
+/// knows both the original scheme and the authority to reach. The `Host` field is
+/// therefore rebuilt from that authority (RFC 9110 §7.2), the hop-by-hop headers are
+/// dropped, and the original client is described for the origin server.
+fn prepare_outbound_request(
+    gateway_name: &str,
+    req: http::Request<reqwest::Body>,
+    version: http::Version,
+    client_addr: SocketAddr,
+) -> http::Request<reqwest::Body> {
+    let (mut parts, body) = req.into_parts();
+    let scheme = parts.uri.scheme_str().map(str::to_owned);
+    let destination = parts
+        .uri
+        .authority()
+        .map(|authority| remove_default_http_https_port(authority.as_str()).to_lowercase());
+
+    headers::prepare_forwarded_request(
+        gateway_name,
+        &mut parts.headers,
+        version,
+        client_addr.ip(),
+        scheme.as_deref(),
+        destination.as_deref(),
+    );
+
+    http::Request::from_parts(parts, body)
+}
+
 fn convert_response_to_hudsucker(
+    gateway_name: &str,
     resp: http::Response<reqwest::Body>,
 ) -> http::Response<hudsucker::Body> {
-    convert_response(resp, |body| {
+    let (mut parts, body) = resp.into_parts();
+    // Behave like a proxy on the way back too: hop-by-hop headers are not relayed and
+    // this gateway advertises itself in `Via`.
+    headers::prepare_forwarded_response(gateway_name, &mut parts.headers, parts.version);
+    http::Response::from_parts(
+        parts,
         hudsucker::Body::from_stream(futures::StreamExt::map(body.into_data_stream(), |result| {
             result.map_err(std::io::Error::other)
-        }))
-    })
+        })),
+    )
 }
 
 fn convert_response_to_reqwest(
