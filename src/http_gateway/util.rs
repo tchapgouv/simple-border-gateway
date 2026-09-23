@@ -42,7 +42,7 @@ pub(crate) fn extract_destination_host(
             host = host_header.to_str().unwrap_or_default();
         }
     }
-    remove_default_https_port(host).to_lowercase()
+    remove_default_http_https_port(host).to_lowercase()
 }
 
 pub(crate) fn extract_origin_ip(
@@ -65,9 +65,11 @@ pub(crate) fn extract_origin_ip(
     origin_ip
 }
 
-pub(crate) fn remove_default_https_port(host: &str) -> &str {
+pub(crate) fn remove_default_http_https_port(host: &str) -> &str {
     if host.ends_with(":443") {
         host.split_at(host.len() - 4).0
+    } else if host.ends_with(":80") {
+        host.split_at(host.len() - 3).0
     } else {
         host
     }
