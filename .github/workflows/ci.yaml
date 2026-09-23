@@ -31,7 +31,7 @@ jobs:
           tool: nextest
 
       - name: Run tests with nextest
-        run: cargo nextest run --all-targets
+        run: cargo nextest run --all-targets --no-fail-fast
 
   lint:
     if: github.event_name == 'pull_request' || github.event_name == 'push'

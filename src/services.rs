@@ -145,6 +145,7 @@ pub fn prepare_services(
 
             services.push(PreparedService::Inbound(
                 InboundGatewayBuilder::new(listen_address, target_base_urls, handler)
+                    .with_gateway_name("simple-border-gateway".to_string())
                     .with_http_client(http_client),
             ));
             info!("Inbound proxy initialized");
@@ -190,6 +191,7 @@ pub fn prepare_services(
                 handler,
             )
             .whatever_context("Failed to create outbound gateway")?
+            .with_gateway_name("simple-border-gateway".to_string())
             .with_http_client(http_client);
             services.push(PreparedService::Outbound(Box::new(builder)));
             info!("Outbound proxy initialized");
