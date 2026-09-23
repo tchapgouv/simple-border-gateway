@@ -125,7 +125,11 @@ impl<H: GatewayHandler> hudsucker::HttpHandler for HandlerAdapter<H> {
                 };
 
                 match self.http_client.execute(req).await {
-                    Ok(resp) => resp.into(),
+                    Ok(resp) => {
+                        self.handler
+                            .handle_response(resp.into(), GatewayDirection::Outbound)
+                            .await
+                    }
                     Err(e) => {
                         return self
                             .handle_gateway_error(
