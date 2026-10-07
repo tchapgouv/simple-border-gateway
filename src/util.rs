@@ -128,13 +128,13 @@ impl EndpointRouter {
     /// Compile endpoints into a router, grouping together endpoints that share a path.
     pub fn new(endpoints: Vec<Endpoint>) -> Result<Self, Whatever> {
         let endpoint_count = endpoints.len();
-        let mut groups: Vec<(String, Vec<Endpoint>)> = Vec::new();
+        let mut groups: BTreeMap<String, Vec<Endpoint>> = BTreeMap::new();
         for endpoint in endpoints {
-            if let Some((_, group)) = groups.iter_mut().find(|(path, _)| path == &endpoint.path) {
+            if let Some(group) = groups.get_mut(&endpoint.path) {
                 group.push(endpoint);
             } else {
                 let path = endpoint.path.clone();
-                groups.push((path, vec![endpoint]));
+                groups.insert(path, vec![endpoint]);
             }
         }
 
