@@ -255,7 +255,7 @@ async fn test_valid_federation_request_but_rejected_endpoint() {
     let (mock_server, client) = setup_mock_gateway(None, false).await;
 
     let response = client
-        .put(mock_server.url("/_matrix/federation/v1/3pid/onbind"))
+        .post(mock_server.url("/_matrix/federation/v1/3pid/onbind"))
         .send()
         .await
         .unwrap();

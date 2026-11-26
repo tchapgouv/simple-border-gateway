@@ -197,7 +197,7 @@ pub(crate) static DEFAULT_ENDPOINTS: Lazy<Vec<Endpoint>> = Lazy::new(|| {
         Endpoint::new_allowed(
             "3pid_onbind",
             "/_matrix/federation/v1/3pid/onbind",
-            Some(Method::PUT),
+            Some(Method::POST),
             Unauthenticated,
             Federation,
         )
